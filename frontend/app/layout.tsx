@@ -12,6 +12,9 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "PoWR - Proof of Work Reputation",
   description: "Verifiable, artifact-backed evidence of real work",
+  other: {
+    "base:app_id": "693ead6ad19763ca26ddc2c5",
+  },
 };
 
 export default function RootLayout({
