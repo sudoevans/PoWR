@@ -39,3 +39,11 @@ coverage/
 # Misc
 *.pem
 .cache/
+
+# Database
+data/
+*.db
+*.db-shm
+*.db-wal
+
+
