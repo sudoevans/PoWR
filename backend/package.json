@@ -16,13 +16,15 @@
   "description": "",
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/pg": "^8.16.0",
     "axios": "^1.13.2",
     "better-sqlite3": "^12.5.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "ethers": "^6.16.0",
     "express": "^5.2.1",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

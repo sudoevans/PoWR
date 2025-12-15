@@ -62,7 +62,7 @@ router.get("/github/callback", async (req, res) => {
     const user = userResponse.data;
     
     // Store user and token in database
-    dbService.upsertUser(user.login, user.id, access_token);
+    await dbService.upsertUser(user.login, user.id, access_token);
     
     // Redirect to frontend with token in query params
     // In production, use JWT tokens and secure session management

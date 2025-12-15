@@ -12,17 +12,13 @@ export class SchedulerService {
   start() {
     console.log("Starting scheduler service...");
 
-    // Run daily at midnight UTC to check for due updates
-    // This handles free plan (every 2 weeks) and basic plan (weekly) updates
     const dailyJob = cron.schedule("0 0 * * *", async () => {
       console.log("Processing scheduled updates...");
-      // Process all due updates regardless of plan type
       const now = new Date();
-      const scheduledUpdates = dbService.getScheduledUpdates(now);
+      const scheduledUpdates = await dbService.getScheduledUpdates(now);
       
-      // Group by plan type for logging
-      const freeUpdates = scheduledUpdates.filter(u => u.planType === "free");
-      const basicUpdates = scheduledUpdates.filter(u => u.planType === "basic");
+      const freeUpdates = scheduledUpdates.filter((u: any) => u.planType === "free");
+      const basicUpdates = scheduledUpdates.filter((u: any) => u.planType === "basic");
       
       console.log(`Found ${freeUpdates.length} free plan updates and ${basicUpdates.length} basic plan updates due`);
       
@@ -34,7 +30,7 @@ export class SchedulerService {
             `Failed to process scheduled update for ${update.username}:`,
             error
           );
-          dbService.markScheduledUpdateFailed(update.id);
+          await dbService.markScheduledUpdateFailed(update.id);
         }
       }
     });
@@ -52,21 +48,17 @@ export class SchedulerService {
   private async processScheduledUpdate(username: string, scheduleId: number) {
     console.log(`Processing scheduled update for ${username}...`);
 
-    // Get user's access token
-    const user = dbService.getUser(username);
+    const user = await dbService.getUser(username);
     if (!user || !user.access_token_encrypted) {
       throw new Error(`No access token found for user ${username}`);
     }
 
-    // Ingest artifacts
     const ingestionService = new ArtifactIngestionService(user.access_token_encrypted);
     const ingested = await ingestionService.ingestUserArtifacts(username, 12);
     const artifacts = ingestionService.normalizeArtifacts(ingested, username);
 
-    // Save artifacts
-    dbService.saveArtifacts(username, artifacts);
+    await dbService.saveArtifacts(username, artifacts);
 
-    // AI analysis
     const aiService = new AIAnalysisService();
     const aiExtraction = await aiService.extractSkills(
       username,
@@ -74,18 +66,15 @@ export class SchedulerService {
       ingested.timeWindow
     );
 
-    // Generate profile
     const scoringEngine = new ScoringEngine();
     const profile = await scoringEngine.generatePoWProfile(artifacts, aiExtraction);
 
-    // Save profile
-    dbService.saveProfile(username, profile, artifacts.length);
+    await dbService.saveProfile(username, profile, artifacts.length);
 
-    // Anchor to blockchain if configured
     if (blockchainService.isConfigured()) {
       try {
         const proof = await blockchainService.anchorSnapshot(artifacts, profile);
-        dbService.saveBlockchainProof(
+        await dbService.saveBlockchainProof(
           username,
           proof.transactionHash,
           proof.artifactHash,
@@ -95,35 +84,30 @@ export class SchedulerService {
         );
       } catch (error) {
         console.error(`Blockchain anchoring failed for ${username}:`, error);
-        // Don't fail the update if blockchain fails
       }
     }
 
-    // Mark as completed
-    dbService.markScheduledUpdateComplete(scheduleId);
+    await dbService.markScheduledUpdateComplete(scheduleId);
 
-    // Reschedule next update
-    const subscription = subscriptionService.getUserPlan(username);
+    const subscription = await subscriptionService.getUserPlan(username);
     if (subscription) {
-      subscriptionService.scheduleUpdate(username, subscription.planType as any);
+      await subscriptionService.scheduleUpdate(username, subscription.planType as any);
     }
 
     console.log(`Completed scheduled update for ${username}`);
   }
 
-  rescheduleNextUpdate(username: string, planType: "free" | "basic" | "pro") {
+  async rescheduleNextUpdate(username: string, planType: "free" | "basic" | "pro") {
     if (planType === "pro") {
-      // Pro plan doesn't need scheduling
       return;
     }
 
     const nextDate = subscriptionService.getNextUpdateDate(planType);
     if (nextDate) {
-      dbService.scheduleUpdate(username, nextDate, planType);
-      dbService.updateSubscription(username, { nextUpdateDate: nextDate });
+      await dbService.scheduleUpdate(username, nextDate, planType);
+      await dbService.updateSubscription(username, { nextUpdateDate: nextDate });
     }
   }
 }
 
 export const schedulerService = new SchedulerService();
-

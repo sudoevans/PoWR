@@ -58,10 +58,8 @@ export class PaymentService {
         return { verified: false };
       }
 
-      // Get transaction value (for ETH payments)
       const value = ethers.formatEther(tx.value || 0);
 
-      // Check if payment address matches
       const paymentAddress = this.getPaymentAddress().toLowerCase();
       if (tx.to?.toLowerCase() !== paymentAddress) {
         return { verified: false };
@@ -85,21 +83,18 @@ export class PaymentService {
     planType: PlanType
   ): Promise<{ success: boolean; message?: string }> {
     try {
-      // Verify payment
       const verification = await this.verifyPayment(txHash);
       if (!verification.verified) {
         return { success: false, message: "Payment verification failed" };
       }
 
-      // Check if transaction already processed
-      const existing = dbService.getPaymentTransaction(txHash);
+      const existing = await dbService.getPaymentTransaction(txHash);
       if (existing && existing.status === "confirmed") {
         return { success: false, message: "Payment already processed" };
       }
 
-      // Save payment transaction
       if (!existing) {
-        dbService.savePaymentTransaction(
+        await dbService.savePaymentTransaction(
           username,
           txHash,
           verification.amount || "0",
@@ -109,14 +104,12 @@ export class PaymentService {
         );
       }
 
-      // Update payment status
-      dbService.updatePaymentTransactionStatus(
+      await dbService.updatePaymentTransactionStatus(
         txHash,
         "confirmed",
         verification.blockNumber
       );
 
-      // Upgrade user's subscription
       await subscriptionService.upgradePlan(username, planType, txHash);
 
       return { success: true };
@@ -126,11 +119,11 @@ export class PaymentService {
     }
   }
 
-  getPaymentStatus(txHash: string): {
+  async getPaymentStatus(txHash: string): Promise<{
     status: "pending" | "confirmed" | "failed" | "not_found";
     transaction?: any;
-  } {
-    const transaction = dbService.getPaymentTransaction(txHash);
+  }> {
+    const transaction = await dbService.getPaymentTransaction(txHash);
     if (!transaction) {
       return { status: "not_found" };
     }
@@ -143,4 +136,3 @@ export class PaymentService {
 }
 
 export const paymentService = new PaymentService();
-

@@ -55,22 +55,18 @@ export class WebhookService {
     event: GitHubWebhookEvent,
     eventType: string
   ): Promise<void> {
-    // Only process for Pro plan users
-    // Extract username from event
     const username = this.extractUsernameFromEvent(event, eventType);
     if (!username) {
       console.log("Could not extract username from webhook event");
       return;
     }
 
-    // Check if user has Pro plan
-    const subscription = subscriptionService.getUserPlan(username);
+    const subscription = await subscriptionService.getUserPlan(username);
     if (!subscription || subscription.planType !== "pro" || subscription.status !== "active") {
       console.log(`User ${username} does not have active Pro subscription`);
       return;
     }
 
-    // Process real-time update
     console.log(`Processing real-time update for Pro user ${username} (event: ${eventType})`);
     await this.triggerRealTimeUpdate(username);
   }
@@ -87,7 +83,6 @@ export class WebhookService {
         return event.pull_request?.user?.login || event.sender?.login || null;
       
       case "repository":
-        // For repository events, we need to check if the owner matches a user
         return event.repository?.owner?.login || event.sender?.login || null;
       
       default:
@@ -97,22 +92,18 @@ export class WebhookService {
 
   private async triggerRealTimeUpdate(username: string) {
     try {
-      // Get user's access token
-      const user = dbService.getUser(username);
+      const user = await dbService.getUser(username);
       if (!user || !user.access_token_encrypted) {
         console.error(`No access token found for user ${username}`);
         return;
       }
 
-      // Ingest artifacts (only recent ones for real-time updates)
       const ingestionService = new ArtifactIngestionService(user.access_token_encrypted);
-      const ingested = await ingestionService.ingestUserArtifacts(username, 1); // Last month only
+      const ingested = await ingestionService.ingestUserArtifacts(username, 1);
       const artifacts = ingestionService.normalizeArtifacts(ingested, username);
 
-      // Save artifacts
-      dbService.saveArtifacts(username, artifacts);
+      await dbService.saveArtifacts(username, artifacts);
 
-      // AI analysis
       const aiService = new AIAnalysisService();
       const aiExtraction = await aiService.extractSkills(
         username,
@@ -120,18 +111,15 @@ export class WebhookService {
         ingested.timeWindow
       );
 
-      // Generate profile
       const scoringEngine = new ScoringEngine();
       const profile = await scoringEngine.generatePoWProfile(artifacts, aiExtraction);
 
-      // Save profile
-      dbService.saveProfile(username, profile, artifacts.length);
+      await dbService.saveProfile(username, profile, artifacts.length);
 
-      // Anchor to blockchain if configured
       if (blockchainService.isConfigured()) {
         try {
           const proof = await blockchainService.anchorSnapshot(artifacts, profile);
-          dbService.saveBlockchainProof(
+          await dbService.saveBlockchainProof(
             username,
             proof.transactionHash,
             proof.artifactHash,
@@ -151,17 +139,15 @@ export class WebhookService {
     }
   }
 
-  registerWebhookForUser(username: string): string {
-    // Generate a unique webhook secret for the user
+  async registerWebhookForUser(username: string): Promise<string> {
     const secret = crypto.randomBytes(32).toString("hex");
-    dbService.updateSubscription(username, { webhookSecret: secret });
+    await dbService.updateSubscription(username, { webhookSecret: secret });
     return secret;
   }
 
-  unregisterWebhookForUser(username: string): void {
-    dbService.updateSubscription(username, { webhookSecret: undefined });
+  async unregisterWebhookForUser(username: string): Promise<void> {
+    await dbService.updateSubscription(username, { webhookSecret: undefined });
   }
 }
 
 export const webhookService = new WebhookService();
-

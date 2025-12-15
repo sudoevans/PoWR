@@ -24,7 +24,7 @@ router.get("/current", async (req, res) => {
       return res.status(400).json({ error: "Username required" });
     }
 
-    const subscription = subscriptionService.getUserPlan(username as string);
+    const subscription = await subscriptionService.getUserPlan(username as string);
     const plan = subscription
       ? subscriptionService.getPlan(subscription.planType as PlanType)
       : subscriptionService.getPlan("free");
@@ -58,9 +58,8 @@ router.post("/upgrade", async (req, res) => {
     }
 
     if (planType === "free") {
-      // Downgrade to free
-      subscriptionService.cancelPlan(username as string);
-      dbService.createSubscription(username as string, "free");
+      await subscriptionService.cancelPlan(username as string);
+      await dbService.createSubscription(username as string, "free");
       return res.json({ success: true, message: "Downgraded to free plan" });
     }
 
@@ -90,7 +89,7 @@ router.post("/cancel", async (req, res) => {
       return res.status(400).json({ error: "Username required" });
     }
 
-    subscriptionService.cancelPlan(username as string);
+    await subscriptionService.cancelPlan(username as string);
     res.json({ success: true, message: "Subscription cancelled" });
   } catch (error: any) {
     console.error("Cancel subscription error:", error);
@@ -107,7 +106,7 @@ router.get("/next-update", async (req, res) => {
       return res.status(400).json({ error: "Username required" });
     }
 
-    const subscription = subscriptionService.getUserPlan(username as string);
+    const subscription = await subscriptionService.getUserPlan(username as string);
     if (!subscription) {
       return res.json({ nextUpdateDate: null });
     }
@@ -123,4 +122,3 @@ router.get("/next-update", async (req, res) => {
 });
 
 export default router;
-

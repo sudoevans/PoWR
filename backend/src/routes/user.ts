@@ -18,15 +18,16 @@ router.get("/profile", async (req, res) => {
     }
 
     // Check database first - only refresh if older than 24 hours
-    const cachedProfile = dbService.getProfile(username as string);
-    if (cachedProfile && !dbService.shouldRefreshProfile(username as string, 24)) {
+    const cachedProfile = await dbService.getProfile(username as string);
+    const shouldRefresh = await dbService.shouldRefreshProfile(username as string, 24);
+    if (cachedProfile && !shouldRefresh) {
       return res.json(cachedProfile);
     }
 
     // Need to fetch fresh data - try to get token from database if not provided
     let token = access_token as string;
     if (!token) {
-      const user = dbService.getUser(username as string);
+      const user = await dbService.getUser(username as string);
       if (user && user.access_token_encrypted) {
         token = user.access_token_encrypted;
       } else {
@@ -36,7 +37,7 @@ router.get("/profile", async (req, res) => {
 
     // Store user in database (update token if provided)
     if (access_token) {
-      dbService.upsertUser(username as string, 0, access_token as string);
+      await dbService.upsertUser(username as string, 0, access_token as string);
     }
 
     progressTracker.setProgress(username as string, "ingestion", "Fetching your repositories...", 10);
@@ -48,7 +49,7 @@ router.get("/profile", async (req, res) => {
     const artifacts = ingestionService.normalizeFastData(fastData, username as string);
 
     // Save artifacts to database
-    dbService.saveArtifacts(username as string, artifacts);
+    await dbService.saveArtifacts(username as string, artifacts);
 
     progressTracker.setProgress(username as string, "ai_analysis", "Analyzing your contributions with AI...", 40);
     const aiService = new AIAnalysisService();
@@ -63,11 +64,11 @@ router.get("/profile", async (req, res) => {
     const profile = await scoringEngine.generatePoWProfile(artifacts, aiExtraction);
     
     // Save profile to database
-    dbService.saveProfile(username as string, profile, artifacts.length);
+    await dbService.saveProfile(username as string, profile, artifacts.length);
     
     // Ensure user has a subscription (creates free plan if first time)
     const { subscriptionService } = await import("../services/subscriptionService");
-    const subscription = subscriptionService.ensureFreePlan(username as string);
+    const subscription = await subscriptionService.ensureFreePlan(username as string);
     
     // Anchor to blockchain if configured (publish PoW to Sepolia)
     if (blockchainService.isConfigured()) {
@@ -76,7 +77,7 @@ router.get("/profile", async (req, res) => {
         const proof = await blockchainService.anchorSnapshot(artifacts, profile);
         
         // Save blockchain proof to database
-        dbService.saveBlockchainProof(
+        await dbService.saveBlockchainProof(
           username as string,
           proof.transactionHash,
           proof.artifactHash,
@@ -91,12 +92,12 @@ router.get("/profile", async (req, res) => {
     
     // Schedule next update based on subscription tier (if not already scheduled)
     if (subscription) {
-      const allScheduled = dbService.getScheduledUpdates();
+      const allScheduled = await dbService.getScheduledUpdates();
       const existingSchedule = allScheduled.find(
-        s => s.username === username as string && s.status === 'pending'
+        (s: any) => s.username === username && s.status === 'pending'
       );
       if (!existingSchedule) {
-        subscriptionService.scheduleUpdate(username as string, subscription.planType as any);
+        await subscriptionService.scheduleUpdate(username as string, subscription.planType as any);
       }
     }
     
@@ -121,7 +122,7 @@ router.get("/skills", async (req, res) => {
 
     let token = access_token as string;
     if (!token) {
-      const user = dbService.getUser(username as string);
+      const user = await dbService.getUser(username as string);
       if (user && user.access_token_encrypted) {
         token = user.access_token_encrypted;
       } else {
@@ -160,14 +161,14 @@ router.get("/artifacts", async (req, res) => {
     }
 
     // Try to get from database first
-    const cachedArtifacts = dbService.getArtifacts(username as string);
+    const cachedArtifacts = await dbService.getArtifacts(username as string);
     if (cachedArtifacts.length > 0) {
       return res.json({ artifacts: cachedArtifacts });
     }
 
     let token = access_token as string;
     if (!token) {
-      const user = dbService.getUser(username as string);
+      const user = await dbService.getUser(username as string);
       if (user && user.access_token_encrypted) {
         token = user.access_token_encrypted;
       } else {
@@ -179,7 +180,7 @@ router.get("/artifacts", async (req, res) => {
     const ingested = await ingestionService.ingestUserArtifacts(username as string, 12);
     const artifacts = ingestionService.normalizeArtifacts(ingested, username as string);
     
-    dbService.saveArtifacts(username as string, artifacts);
+    await dbService.saveArtifacts(username as string, artifacts);
 
     res.json({ artifacts });
   } catch (error: any) {
@@ -200,9 +201,9 @@ router.post("/analyze", async (req, res) => {
     const { subscriptionService } = await import("../services/subscriptionService");
     
     // Ensure user has at least a free plan
-    subscriptionService.ensureFreePlan(username);
+    await subscriptionService.ensureFreePlan(username);
     
-    const canUpdate = subscriptionService.canUserUpdate(username);
+    const canUpdate = await subscriptionService.canUserUpdate(username);
     
     if (!canUpdate.allowed) {
       return res.status(403).json({
@@ -214,7 +215,7 @@ router.post("/analyze", async (req, res) => {
 
     let token = access_token as string;
     if (!token) {
-      const user = dbService.getUser(username as string);
+      const user = await dbService.getUser(username as string);
       if (user && user.access_token_encrypted) {
         token = user.access_token_encrypted;
       } else {
@@ -232,13 +233,13 @@ router.post("/analyze", async (req, res) => {
     const scoringEngine = new ScoringEngine();
     const profile = await scoringEngine.generatePoWProfile(artifacts, aiExtraction);
 
-    dbService.saveArtifacts(username, artifacts);
-    dbService.saveProfile(username, profile, artifacts.length);
+    await dbService.saveArtifacts(username, artifacts);
+    await dbService.saveProfile(username, profile, artifacts.length);
 
     if (blockchainService.isConfigured()) {
       try {
         const proof = await blockchainService.anchorSnapshot(artifacts, profile);
-        dbService.saveBlockchainProof(
+        await dbService.saveBlockchainProof(
           username,
           proof.transactionHash,
           proof.artifactHash,
@@ -251,9 +252,9 @@ router.post("/analyze", async (req, res) => {
       }
     }
 
-    const subscription = subscriptionService.getUserPlan(username);
+    const subscription = await subscriptionService.getUserPlan(username);
     if (subscription) {
-      subscriptionService.scheduleUpdate(username, subscription.planType as any);
+      await subscriptionService.scheduleUpdate(username, subscription.planType as any);
     }
 
     res.json({
@@ -293,7 +294,7 @@ router.get("/proofs", async (req, res) => {
       return res.status(400).json({ error: "Username required" });
     }
 
-    const proofs = dbService.getBlockchainProofs(username as string);
+    const proofs = await dbService.getBlockchainProofs(username as string);
     res.json({ proofs });
   } catch (error: any) {
     console.error("Proofs error:", error);
