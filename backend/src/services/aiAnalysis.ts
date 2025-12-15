@@ -67,11 +67,17 @@ export class AIAnalysisService {
       this.apiUrl = "https://api.anthropic.com/v1/messages";
       this.model = "claude-3-opus-20240229";
     } else {
+      // No API key - will use heuristic fallback
       this.provider = "gemini";
       this.apiKey = "";
-      this.model = "gemini-3-pro-preview";
-      this.apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`;
+      this.model = "";
+      this.apiUrl = "";
+      console.warn("WARNING: No AI API key configured. Using heuristic-based scoring.");
     }
+  }
+
+  hasApiKey(): boolean {
+    return !!this.apiKey;
   }
 
   async extractSkills(
@@ -79,28 +85,40 @@ export class AIAnalysisService {
     artifacts: Artifact[],
     timeWindow: { start: string; end: string }
   ): Promise<SkillExtraction> {
-    // Prepare artifact summary
+    // Collect language and repo data for analysis
+    const languages = new Map<string, number>(); // language -> bytes
     const repoCount = artifacts.filter((a) => a.type === "repo").length;
     const commitCount = artifacts.filter((a) => a.type === "commit").length;
     const prCount = artifacts.filter((a) => a.type === "pull_request").length;
 
-    const languages = new Set<string>();
     artifacts.forEach((artifact) => {
       if (artifact.type === "repo") {
         const repo = artifact.data as any;
         if (repo.language) {
-          languages.add(repo.language);
+          languages.set(repo.language, (languages.get(repo.language) || 0) + 1);
+        }
+        // Also check languages_breakdown if available (from fast mode)
+        if (repo.languages_breakdown) {
+          for (const [lang, bytes] of Object.entries(repo.languages_breakdown)) {
+            languages.set(lang, (languages.get(lang) || 0) + (bytes as number));
+          }
         }
       }
     });
 
-    // Load prompt template
+    // If no API key, use heuristic-based scoring
+    if (!this.hasApiKey()) {
+      console.log(`Using heuristic scoring for ${username}: ${repoCount} repos, ${commitCount} commits, ${prCount} PRs`);
+      return this.heuristicSkillExtraction(artifacts, languages, repoCount, commitCount, prCount);
+    }
+
+    // Build prompt for AI
     const prompt = this.buildSkillExtractionPrompt(
       username,
       repoCount,
       commitCount,
       prCount,
-      Array.from(languages),
+      Array.from(languages.keys()),
       timeWindow
     );
 
@@ -108,10 +126,96 @@ export class AIAnalysisService {
       const response = await this.callAI(prompt);
       return this.parseSkillExtraction(response);
     } catch (error) {
-      console.error("AI analysis error:", error);
-      // Return default scores on error
-      return this.getDefaultSkillExtraction();
+      console.error("AI analysis error, falling back to heuristics:", error);
+      return this.heuristicSkillExtraction(artifacts, languages, repoCount, commitCount, prCount);
     }
+  }
+
+  /**
+   * Heuristic-based skill extraction when AI is unavailable
+   * Uses language detection and artifact patterns to estimate skills
+   */
+  private heuristicSkillExtraction(
+    artifacts: Artifact[],
+    languages: Map<string, number>,
+    repoCount: number,
+    commitCount: number,
+    prCount: number
+  ): SkillExtraction {
+    // Language -> skill mapping
+    const backendLangs = ["Python", "Java", "Go", "Rust", "C#", "Ruby", "PHP", "Kotlin", "Scala"];
+    const frontendLangs = ["JavaScript", "TypeScript", "HTML", "CSS", "Vue", "Svelte"];
+    const devopsLangs = ["Shell", "Dockerfile", "HCL", "YAML", "Makefile"];
+    const systemsLangs = ["C", "C++", "Rust", "Go", "Assembly"];
+
+    // Calculate scores based on language presence
+    let backendScore = 0, frontendScore = 0, devopsScore = 0, systemsScore = 0;
+    let totalBytes = 0;
+    
+    for (const [lang, bytes] of languages) {
+      totalBytes += bytes;
+      if (backendLangs.includes(lang)) backendScore += bytes;
+      if (frontendLangs.includes(lang)) frontendScore += bytes;
+      if (devopsLangs.includes(lang)) devopsScore += bytes;
+      if (systemsLangs.includes(lang)) systemsScore += bytes;
+    }
+
+    // Normalize to 0-100
+    const normalize = (score: number) => {
+      if (totalBytes === 0) return 0;
+      const percentage = (score / totalBytes) * 100;
+      // Scale up: 30% of codebase in a category = 70 score
+      return Math.min(100, Math.round(percentage * 2.5));
+    };
+
+    // Activity multiplier based on commits and PRs
+    const activityMultiplier = Math.min(1.5, 1 + (commitCount + prCount * 2) / 100);
+
+    // Check for specific patterns in repos
+    artifacts.forEach((artifact) => {
+      if (artifact.type === "repo") {
+        const repo = artifact.data as any;
+        const name = (repo.name || "").toLowerCase();
+        const desc = (repo.description || "").toLowerCase();
+        
+        // Boost scores based on repo names/descriptions
+        if (name.includes("api") || name.includes("backend") || name.includes("server")) backendScore += 500;
+        if (name.includes("frontend") || name.includes("ui") || name.includes("web")) frontendScore += 500;
+        if (name.includes("deploy") || name.includes("docker") || name.includes("k8s") || name.includes("terraform")) devopsScore += 500;
+        if (name.includes("system") || name.includes("kernel") || name.includes("driver")) systemsScore += 500;
+        
+        if (desc.includes("api") || desc.includes("rest") || desc.includes("graphql")) backendScore += 300;
+        if (desc.includes("react") || desc.includes("vue") || desc.includes("angular")) frontendScore += 300;
+        if (desc.includes("ci/cd") || desc.includes("pipeline") || desc.includes("infrastructure")) devopsScore += 300;
+      }
+    });
+
+    // Ensure minimum scores if user has any activity
+    const hasActivity = repoCount > 0 || commitCount > 0 || prCount > 0;
+    const minScore = hasActivity ? 15 : 0;
+
+    return {
+      backend_engineering: {
+        score: Math.max(minScore, Math.round(normalize(backendScore) * activityMultiplier)),
+        confidence: Math.min(90, 30 + repoCount * 5 + commitCount),
+        evidence: [],
+      },
+      frontend_engineering: {
+        score: Math.max(minScore, Math.round(normalize(frontendScore) * activityMultiplier)),
+        confidence: Math.min(90, 30 + repoCount * 5 + commitCount),
+        evidence: [],
+      },
+      devops_infrastructure: {
+        score: Math.max(minScore, Math.round(normalize(devopsScore) * activityMultiplier)),
+        confidence: Math.min(90, 30 + repoCount * 5 + commitCount),
+        evidence: [],
+      },
+      systems_architecture: {
+        score: Math.max(minScore, Math.round(normalize(systemsScore) * activityMultiplier)),
+        confidence: Math.min(90, 30 + repoCount * 5 + commitCount),
+        evidence: [],
+      },
+    };
   }
 
   async analyzeContributionImpact(artifact: Artifact): Promise<ContributionImpact> {
@@ -142,6 +246,11 @@ export class AIAnalysisService {
   async analyzeContributionImpactBatch(artifacts: Artifact[]): Promise<Map<string, ContributionImpact>> {
     if (artifacts.length === 0) {
       return new Map();
+    }
+
+    // If no API key, use heuristic impact scoring
+    if (!this.hasApiKey()) {
+      return this.heuristicImpactBatch(artifacts);
     }
 
     // Only use batch processing for Gemini (has large context window)
@@ -230,6 +339,73 @@ ${artifactsSummary}`;
       });
       return impactMap;
     }
+  }
+
+  /**
+   * Heuristic-based impact scoring for when AI is unavailable
+   */
+  private heuristicImpactBatch(artifacts: Artifact[]): Map<string, ContributionImpact> {
+    const impactMap = new Map<string, ContributionImpact>();
+    
+    for (const artifact of artifacts) {
+      let impact_score = 50;
+      let complexity_delta = 50;
+      let has_tests = false;
+      let documented = false;
+      
+      if (artifact.type === "pull_request") {
+        const pr = artifact.data as any;
+        // Score based on PR size and merge status
+        const additions = pr.additions || 0;
+        const deletions = pr.deletions || 0;
+        const totalChanges = additions + deletions;
+        
+        // More changes = higher impact (with diminishing returns)
+        impact_score = Math.min(90, 30 + Math.sqrt(totalChanges) * 3);
+        complexity_delta = Math.min(85, 25 + Math.sqrt(totalChanges) * 2);
+        
+        // Merged PRs are more impactful
+        if (pr.merged) {
+          impact_score = Math.min(100, impact_score * 1.2);
+        }
+        
+        // Check title/body for test mentions
+        const text = `${pr.title || ""} ${pr.body || ""}`.toLowerCase();
+        has_tests = text.includes("test") || text.includes("spec");
+        documented = text.includes("doc") || text.includes("readme") || (pr.body || "").length > 200;
+        
+      } else if (artifact.type === "commit") {
+        const commit = artifact.data as any;
+        const message = commit.commit?.message || "";
+        const stats = commit.stats || {};
+        
+        const totalChanges = (stats.additions || 0) + (stats.deletions || 0);
+        impact_score = Math.min(80, 30 + Math.sqrt(totalChanges) * 2);
+        complexity_delta = Math.min(75, 20 + Math.sqrt(totalChanges) * 1.5);
+        
+        // Check commit message for patterns
+        const msgLower = message.toLowerCase();
+        has_tests = msgLower.includes("test") || msgLower.includes("spec");
+        documented = msgLower.includes("doc") || msgLower.includes("readme");
+        
+        // Refactoring and fix commits are valuable
+        if (msgLower.includes("refactor")) complexity_delta = Math.min(90, complexity_delta * 1.3);
+        if (msgLower.includes("fix") || msgLower.includes("bug")) impact_score = Math.min(85, impact_score * 1.1);
+      }
+      
+      impactMap.set(artifact.id, {
+        impact_score: Math.round(impact_score),
+        complexity_delta: Math.round(complexity_delta),
+        quality_indicators: {
+          has_tests,
+          reviewed: artifact.type === "pull_request", // PRs are reviewed
+          refactored: false,
+          documented,
+        },
+      });
+    }
+    
+    return impactMap;
   }
 
   /**
