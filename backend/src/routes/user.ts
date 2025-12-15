@@ -67,7 +67,7 @@ router.get("/profile", async (req, res) => {
     
     // Ensure user has a subscription (creates free plan if first time)
     const { subscriptionService } = await import("../services/subscriptionService");
-    const subscription = subscriptionService.getUserPlan(username as string);
+    const subscription = subscriptionService.ensureFreePlan(username as string);
     
     // Anchor to blockchain if configured (publish PoW to Sepolia)
     if (blockchainService.isConfigured()) {
@@ -198,6 +198,10 @@ router.post("/analyze", async (req, res) => {
     }
 
     const { subscriptionService } = await import("../services/subscriptionService");
+    
+    // Ensure user has at least a free plan
+    subscriptionService.ensureFreePlan(username);
+    
     const canUpdate = subscriptionService.canUserUpdate(username);
     
     if (!canUpdate.allowed) {

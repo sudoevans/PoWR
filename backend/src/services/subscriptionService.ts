@@ -68,6 +68,16 @@ export class SubscriptionService {
     return dbService.getSubscription(username);
   }
 
+  // Ensure user has at least a free plan
+  ensureFreePlan(username: string): any {
+    let subscription = dbService.getSubscription(username);
+    if (!subscription) {
+      dbService.createSubscription(username, "free");
+      subscription = dbService.getSubscription(username);
+    }
+    return subscription;
+  }
+
   async upgradePlan(
     username: string,
     planType: PlanType,
