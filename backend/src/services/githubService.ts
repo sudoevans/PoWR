@@ -11,6 +11,14 @@ export interface GitHubRepo {
   created_at: string;
   updated_at: string;
   pushed_at: string;
+  owner: {
+    login: string;
+    type: string;
+  };
+  fork: boolean;
+  parent?: {
+    full_name: string;
+  };
 }
 
 export interface GitHubCommit {
@@ -75,11 +83,13 @@ export class GitHubService {
   }
 
   async getUserRepos(username: string): Promise<GitHubRepo[]> {
+    // Use "owner" type to only get repos where user is the owner (not just a collaborator)
+    // This ensures we only show projects the user actually authored
     const response = await this.client.get(`/users/${username}/repos`, {
       params: {
         sort: "updated",
         per_page: 100,
-        type: "all",
+        type: "owner", // Only repos owned by the user, not where they're a collaborator
       },
     });
     return response.data;

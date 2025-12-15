@@ -22,9 +22,19 @@ app.get("/health", (req, res) => {
 // Routes
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/user";
+import subscriptionRoutes from "./routes/subscription";
+import paymentRoutes from "./routes/payments";
+import webhookRoutes from "./routes/webhooks";
 
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
+app.use("/api/subscription", subscriptionRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/webhooks", webhookRoutes);
+
+// Start scheduler service
+import { schedulerService } from "./services/schedulerService";
+schedulerService.start();
 
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
