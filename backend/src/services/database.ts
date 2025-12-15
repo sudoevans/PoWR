@@ -100,11 +100,12 @@ export class DatabaseService {
   }
 
   // Alias for compatibility
-  createSubscription(username: string, planType: string, paymentAddress?: string) {
+  createSubscription(username: string, planType: string, paymentAddress?: string, paymentTxHash?: string) {
     this.saveSubscription(username, {
       plan_type: planType,
       status: "active",
       payment_address: paymentAddress,
+      last_payment_tx_hash: paymentTxHash,
       created_at: new Date().toISOString(),
     });
   }
@@ -154,8 +155,11 @@ export class DatabaseService {
     });
   }
 
-  getScheduledUpdates(): any[] {
-    return store.scheduledUpdates;
+  getScheduledUpdates(beforeDate?: Date): any[] {
+    if (!beforeDate) return store.scheduledUpdates;
+    return store.scheduledUpdates.filter(
+      u => u.status === "pending" && new Date(u.scheduled_date) <= beforeDate
+    );
   }
 
   getPendingUpdates(): any[] {
@@ -184,8 +188,8 @@ export class DatabaseService {
   }
 
   // Alias for compatibility
-  markScheduledUpdateFailed(id: number, error: string) {
-    this.markUpdateFailed(id, error);
+  markScheduledUpdateFailed(id: number, error?: string) {
+    this.markUpdateFailed(id, error || "Unknown error");
   }
 
   // Payment management
@@ -194,10 +198,11 @@ export class DatabaseService {
     txHash: string,
     amount: string,
     currency: string,
-    planType: string
+    planType: string,
+    blockNumber?: number
   ) {
     // In-memory: just track it
-    console.log(`Payment recorded: ${username} - ${txHash} - ${amount} ${currency}`);
+    console.log(`Payment recorded: ${username} - ${txHash} - ${amount} ${currency} - block: ${blockNumber}`);
   }
 
   getPaymentTransaction(txHash: string): any | null {
