@@ -69,6 +69,18 @@ export interface GitHubPullRequest {
   changed_files?: number;
 }
 
+export interface GitHubUserStats {
+  public_repos: number;
+  public_gists: number;
+  followers: number;
+  following: number;
+  created_at: string;
+}
+
+export interface GitHubRepoLanguages {
+  [language: string]: number; // bytes of code per language
+}
+
 export class GitHubService {
   private client: AxiosInstance;
 
@@ -82,17 +94,59 @@ export class GitHubService {
     });
   }
 
+  async getUserStats(username: string): Promise<GitHubUserStats> {
+    const response = await this.client.get(`/users/${username}`);
+    return response.data;
+  }
+
   async getUserRepos(username: string): Promise<GitHubRepo[]> {
-    // Use "owner" type to only get repos where user is the owner (not just a collaborator)
-    // This ensures we only show projects the user actually authored
     const response = await this.client.get(`/users/${username}/repos`, {
       params: {
         sort: "updated",
         per_page: 100,
-        type: "owner", // Only repos owned by the user, not where they're a collaborator
+        type: "owner",
       },
     });
     return response.data;
+  }
+
+  async getRepoLanguages(owner: string, repo: string): Promise<GitHubRepoLanguages> {
+    try {
+      const response = await this.client.get(`/repos/${owner}/${repo}/languages`);
+      return response.data;
+    } catch {
+      return {};
+    }
+  }
+
+  async getRepoContributorStats(owner: string, repo: string, username: string): Promise<{
+    totalCommits: number;
+    additions: number;
+    deletions: number;
+  } | null> {
+    try {
+      const response = await this.client.get(`/repos/${owner}/${repo}/stats/contributors`);
+      const stats = response.data?.find((c: any) => c.author?.login === username);
+      if (!stats) return null;
+      return {
+        totalCommits: stats.total || 0,
+        additions: stats.weeks?.reduce((sum: number, w: any) => sum + (w.a || 0), 0) || 0,
+        deletions: stats.weeks?.reduce((sum: number, w: any) => sum + (w.d || 0), 0) || 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async getUserEvents(username: string, perPage: number = 100): Promise<any[]> {
+    try {
+      const response = await this.client.get(`/users/${username}/events/public`, {
+        params: { per_page: perPage },
+      });
+      return response.data;
+    } catch {
+      return [];
+    }
   }
 
   async getRepoCommits(owner: string, repo: string, since?: string): Promise<GitHubCommit[]> {

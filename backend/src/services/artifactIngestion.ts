@@ -1,4 +1,4 @@
-import { GitHubService, GitHubRepo, GitHubCommit, GitHubPullRequest } from "./githubService";
+import { GitHubService, GitHubRepo, GitHubCommit, GitHubPullRequest, GitHubRepoLanguages } from "./githubService";
 
 export interface Artifact {
   type: "repo" | "commit" | "pull_request";
@@ -8,6 +8,30 @@ export interface Artifact {
   repository?: {
     owner: string;
     name: string;
+  };
+}
+
+export interface RepoMetadata {
+  repo: GitHubRepo;
+  languages: GitHubRepoLanguages;
+  userStats: {
+    totalCommits: number;
+    additions: number;
+    deletions: number;
+  } | null;
+}
+
+export interface FastIngestedData {
+  repos: RepoMetadata[];
+  recentEvents: any[];
+  userStats: {
+    public_repos: number;
+    followers: number;
+    created_at: string;
+  };
+  timeWindow: {
+    start: string;
+    end: string;
   };
 }
 
@@ -26,6 +50,161 @@ export class ArtifactIngestionService {
 
   constructor(accessToken: string) {
     this.githubService = new GitHubService(accessToken);
+  }
+
+  /**
+   * FAST MODE: Only fetch repo metadata + user events
+   * ~3-5 API calls instead of 50+
+   * Perfect for initial profile generation
+   */
+  async ingestFast(username: string, monthsBack: number = 12): Promise<FastIngestedData> {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - monthsBack);
+
+    // Parallel fetch: user stats, repos, recent events (3 API calls)
+    const [userStats, allRepos, recentEvents] = await Promise.all([
+      this.githubService.getUserStats(username),
+      this.githubService.getUserRepos(username),
+      this.githubService.getUserEvents(username, 100),
+    ]);
+
+    // Filter to owned, non-fork repos with recent activity
+    const ownedRepos = allRepos.filter((repo) => {
+      const isOwner = repo.owner.login === username;
+      const isNotFork = !repo.fork;
+      const hasRecentActivity = new Date(repo.pushed_at) >= startDate;
+      return isOwner && isNotFork && hasRecentActivity;
+    });
+
+    // Sort by stars + recent activity, take top 15 for language analysis
+    const topRepos = ownedRepos
+      .sort((a, b) => {
+        const scoreA = a.stargazers_count + (new Date(a.pushed_at).getTime() / 1e12);
+        const scoreB = b.stargazers_count + (new Date(b.pushed_at).getTime() / 1e12);
+        return scoreB - scoreA;
+      })
+      .slice(0, 15);
+
+    // Fetch languages for top repos in parallel (15 API calls max)
+    const repoMetadata: RepoMetadata[] = await Promise.all(
+      topRepos.map(async (repo) => {
+        const [owner, repoName] = repo.full_name.split("/");
+        const [languages, userContribStats] = await Promise.all([
+          this.githubService.getRepoLanguages(owner, repoName),
+          this.githubService.getRepoContributorStats(owner, repoName, username),
+        ]);
+        return { repo, languages, userStats: userContribStats };
+      })
+    );
+
+    return {
+      repos: repoMetadata,
+      recentEvents,
+      userStats: {
+        public_repos: userStats.public_repos,
+        followers: userStats.followers,
+        created_at: userStats.created_at,
+      },
+      timeWindow: {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+      },
+    };
+  }
+
+  /**
+   * Convert fast-ingested data to artifacts for scoring
+   */
+  normalizeFastData(data: FastIngestedData, username: string): Artifact[] {
+    const artifacts: Artifact[] = [];
+
+    // Add repos with enriched metadata
+    for (const { repo, languages, userStats } of data.repos) {
+      artifacts.push({
+        type: "repo",
+        id: `repo-${repo.id}`,
+        data: {
+          ...repo,
+          // Enrich with language breakdown
+          languages_breakdown: languages,
+          user_contribution_stats: userStats,
+        } as any,
+        timestamp: repo.updated_at,
+        repository: {
+          owner: repo.full_name.split("/")[0],
+          name: repo.full_name.split("/")[1],
+        },
+      });
+    }
+
+    // Extract commits and PRs from recent events
+    const pushEvents = data.recentEvents.filter((e) => e.type === "PushEvent");
+    const prEvents = data.recentEvents.filter((e) => e.type === "PullRequestEvent");
+
+    // Create synthetic commit artifacts from push events
+    for (const event of pushEvents) {
+      if (!event.payload?.commits) continue;
+      for (const commit of event.payload.commits) {
+        artifacts.push({
+          type: "commit",
+          id: `commit-${commit.sha}`,
+          data: {
+            sha: commit.sha,
+            commit: {
+              message: commit.message,
+              author: {
+                name: commit.author?.name || username,
+                email: commit.author?.email || "",
+                date: event.created_at,
+              },
+            },
+            author: { login: username, avatar_url: "" },
+          } as GitHubCommit,
+          timestamp: event.created_at,
+          repository: {
+            owner: event.repo?.name?.split("/")[0] || username,
+            name: event.repo?.name?.split("/")[1] || "unknown",
+          },
+        });
+      }
+    }
+
+    // Create PR artifacts from PR events
+    for (const event of prEvents) {
+      const pr = event.payload?.pull_request;
+      if (!pr || pr.user?.login !== username) continue;
+      artifacts.push({
+        type: "pull_request",
+        id: `pr-${pr.id}`,
+        data: {
+          id: pr.id,
+          number: pr.number,
+          title: pr.title,
+          body: pr.body,
+          state: pr.state,
+          merged: pr.merged || false,
+          merged_at: pr.merged_at,
+          created_at: pr.created_at,
+          updated_at: pr.updated_at,
+          user: pr.user,
+          head: pr.head,
+          base: pr.base,
+          additions: pr.additions,
+          deletions: pr.deletions,
+          changed_files: pr.changed_files,
+        } as GitHubPullRequest,
+        timestamp: pr.created_at,
+        repository: {
+          owner: event.repo?.name?.split("/")[0] || username,
+          name: event.repo?.name?.split("/")[1] || "unknown",
+        },
+      });
+    }
+
+    return artifacts.sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
   }
 
   async ingestUserArtifacts(
