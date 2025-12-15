@@ -23,12 +23,12 @@ export const SkillBar: React.FC<SkillBarProps> = ({
           {showPercentile && percentile !== undefined && (
             <span className="text-xs text-gray-400">Top {100 - percentile}%</span>
           )}
-          <span className="text-sm font-bold text-[#0052FF]">{score}</span>
+          <span className="text-sm font-bold text-[#3b76ef]">{score}</span>
         </div>
       </div>
       <div className="w-full h-2 bg-[#0A0B0D] rounded-full overflow-hidden">
         <div
-          className="h-full bg-[#0052FF] transition-all duration-500"
+          className="h-full bg-[#3b76ef] transition-all duration-500"
           style={{ width: `${score}%` }}
         />
       </div>

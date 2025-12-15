@@ -13,12 +13,12 @@ export const Button: React.FC<ButtonProps> = ({
   className = "",
   ...props
 }) => {
-  const baseStyles = "rounded-full font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#0052FF] focus:ring-offset-2 focus:ring-offset-[#0A0B0D]";
+  const baseStyles = "cursor-pointer rounded-full font-medium transition-all duration-120 ease-out focus:outline-none focus:ring-2 focus:ring-[#3b76ef] focus:ring-offset-2 focus:ring-offset-[#0A0B0D]";
   
   const variants = {
-    primary: "bg-[#0052FF] text-white hover:bg-[#0040CC] active:bg-[#003399]",
-    secondary: "bg-[#141519] text-white hover:bg-[#1A1B1F] active:bg-[#0F1012]",
-    outline: "border-2 border-[#0052FF] text-[#0052FF] hover:bg-[#0052FF] hover:text-white active:bg-[#0040CC]",
+    primary: "bg-[#3b76ef] text-white hover:bg-[#2d5fd4] hover:shadow-[0_0_20px_rgba(59,118,239,0.4)] active:bg-[#1f48b9] disabled:opacity-60 disabled:cursor-not-allowed",
+    secondary: "bg-[#141519] text-white hover:bg-[#1A1B1F] active:bg-[#0F1012] disabled:opacity-60 disabled:cursor-not-allowed",
+    outline: "border-2 border-[#3b76ef] text-[#3b76ef] hover:bg-[#3b76ef] hover:text-white hover:shadow-[0_0_20px_rgba(59,118,239,0.3)] active:bg-[#2d5fd4] disabled:opacity-60 disabled:cursor-not-allowed",
   };
   
   const sizes = {
