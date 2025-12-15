@@ -1,26 +1,73 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card } from "../ui";
-import { Link2, CheckCircle2 } from "lucide-react";
+import { Link, ShieldCheck, CaretDown, CaretUp, Plus, Copy, Check, Cube, ArrowsClockwise } from "phosphor-react";
+import { apiClient } from "../../lib/api";
+import { verifyHashOnChain, POW_REGISTRY_ADDRESS } from "../../lib/web3";
+import toast from "react-hot-toast";
+
+const CONTRACT_ADDRESS = POW_REGISTRY_ADDRESS;
 
 export interface Proof {
-  id: string;
-  hash: string;
-  timestamp: string;
-  transactionHash?: string;
+  id?: number;
+  transactionHash: string;
+  artifactHash: string;
+  blockNumber: number;
+  timestamp: number;
   skillScores: number[];
+  createdAt?: string;
 }
 
 interface OnChainProofsProps {
   proofs: Proof[];
+  username?: string;
+  onRefresh?: () => void;
 }
 
 export const OnChainProofs: React.FC<OnChainProofsProps> = ({
   proofs,
+  username,
+  onRefresh,
 }) => {
-  const formatDate = (timestamp: string) => {
-    return new Date(timestamp).toLocaleDateString("en-US", {
+  const [expandedProofs, setExpandedProofs] = useState<Set<number>>(new Set());
+  const [publishing, setPublishing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [verifiedHashes, setVerifiedHashes] = useState<Set<string>>(new Set());
+  const [verifying, setVerifying] = useState(false);
+
+  // Verify proofs on-chain when they change
+  useEffect(() => {
+    const verifyProofs = async () => {
+      if (proofs.length === 0) return;
+      setVerifying(true);
+      const verified = new Set<string>();
+      for (const proof of proofs) {
+        if (proof.artifactHash) {
+          try {
+            const isVerified = await verifyHashOnChain(proof.artifactHash);
+            if (isVerified) {
+              verified.add(proof.artifactHash);
+            }
+          } catch (error) {
+            console.error("Verification error:", error);
+          }
+        }
+      }
+      setVerifiedHashes(verified);
+      setVerifying(false);
+    };
+    verifyProofs();
+  }, [proofs]);
+
+  const copyAddress = () => {
+    navigator.clipboard.writeText(CONTRACT_ADDRESS);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  const formatDate = (timestamp: number | string) => {
+    const date = typeof timestamp === 'number' ? new Date(timestamp * 1000) : new Date(timestamp);
+    return date.toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -33,57 +80,292 @@ export const OnChainProofs: React.FC<OnChainProofsProps> = ({
     return `https://sepolia.basescan.org/tx/${txHash}`;
   };
 
+  const getContractUrl = () => {
+    return `https://sepolia.basescan.org/address/${CONTRACT_ADDRESS}`;
+  };
+
+  const getBlockUrl = (blockNumber: number) => {
+    return `https://sepolia.basescan.org/block/${blockNumber}`;
+  };
+
+  const toggleProof = (proofId: number) => {
+    const newExpanded = new Set(expandedProofs);
+    if (newExpanded.has(proofId)) {
+      newExpanded.delete(proofId);
+    } else {
+      newExpanded.add(proofId);
+    }
+    setExpandedProofs(newExpanded);
+  };
+
+  const handlePublishProof = async () => {
+    if (!username) return;
+    
+    setPublishing(true);
+    try {
+      toast.loading("Publishing proof to blockchain...", { id: "publish-proof" });
+      // Trigger analysis which will automatically anchor to blockchain
+      await apiClient.triggerAnalysis(username, "", 12);
+      toast.success("Proof published successfully! Refreshing...", { id: "publish-proof" });
+      // Wait a bit for the transaction to be processed, then refresh
+      setTimeout(() => {
+        if (onRefresh) {
+          onRefresh();
+        } else {
+          window.location.reload();
+        }
+      }, 2000);
+    } catch (error: any) {
+      console.error("Failed to publish proof:", error);
+      const errorMsg = error?.message || "Failed to publish proof. Please try again.";
+      toast.error(errorMsg, { id: "publish-proof" });
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const latestProof = proofs.length > 0 ? proofs[0] : null;
+
   return (
-    <Card>
-      <div className="flex items-center gap-2 mb-6">
-        <CheckCircle2 className="w-5 h-5 text-[#0052FF]" />
-        <h2 className="text-xl font-semibold text-white tracking-tight">
-          On-Chain Proofs
-        </h2>
+    <Card className="p-4 rounded-[16px]">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-blue-400" weight="fill" />
+          <h2 className="text-sm font-medium text-blue-400" style={{ fontWeight: 500, fontSize: '14px' }}>
+            On-Chain Proofs
+          </h2>
+          {proofs.length > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-[rgba(255,255,255,0.1)] text-blue-300">
+              {proofs.length}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <a
+            href={getContractUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+            title="View PoWRegistry contract on BaseScan"
+          >
+            Contract
+          </a>
+          {username && (
+            <button
+              onClick={handlePublishProof}
+              disabled={publishing}
+              className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-[rgba(255,255,255,0.05)] hover:bg-[rgba(255,255,255,0.1)] text-blue-300 disabled:opacity-50"
+            >
+              <Plus className="w-3 h-3" weight="bold" />
+              {publishing ? "Publishing..." : "Publish Proof"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Contract Address */}
+      <div className="mb-3 p-2.5 rounded-[12px] bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)]">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center gap-1.5">
+            <Cube className="w-3.5 h-3.5 text-violet-400" weight="fill" />
+            <span className="text-[10px] text-gray-400">PoWRegistry Contract</span>
+          </div>
+          <span className="text-[9px] text-blue-400 px-1.5 py-0.5 rounded bg-[rgba(255,255,255,0.05)]">Base Sepolia</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 text-[11px] font-mono text-gray-300 truncate">
+            {CONTRACT_ADDRESS}
+          </code>
+          <button
+            onClick={copyAddress}
+            className="p-1 rounded text-gray-500 hover:text-white transition-colors"
+            title="Copy address"
+          >
+            {copied ? <Check className="w-3 h-3 text-emerald-400" weight="bold" /> : <Copy className="w-3 h-3" weight="regular" />}
+          </button>
+          <a
+            href={getContractUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1 rounded text-gray-500 hover:text-blue-400 transition-colors"
+            title="View on BaseScan"
+          >
+            <Link className="w-3 h-3" weight="regular" />
+          </a>
+        </div>
       </div>
 
       {proofs.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="text-gray-400 mb-2">No proofs anchored yet</p>
-          <p className="text-sm text-gray-500">
-            Anchor your PoW snapshot on-chain to create an immutable proof
+        <div className="py-4">
+          <p className="text-xs text-gray-400 mb-2" style={{ opacity: 0.6 }}>
+            No on-chain proofs yet. Publish your first proof to get started.
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {proofs.map((proof) => (
-            <div
-              key={proof.id}
-              className="p-4 rounded-lg bg-[#0A0B0D] border border-[#141519]"
-            >
+        <div className="space-y-2">
+          {/* Latest proof prominently displayed */}
+          {latestProof && (
+            <div className="p-3 rounded-[14px] bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
               <div className="flex items-start justify-between mb-2">
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    Snapshot #{proof.id}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {formatDate(proof.timestamp)}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-xs font-medium text-white">
+                      Latest Snapshot #{latestProof.id || 1}
+                    </p>
+                    {verifying ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400 flex items-center gap-1">
+                        <ArrowsClockwise className="w-3 h-3 animate-spin" weight="bold" />
+                        Verifying
+                      </span>
+                    ) : verifiedHashes.has(latestProof.artifactHash) ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                        On-Chain Verified
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                        Recorded
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-400" style={{ opacity: 0.6 }}>
+                    {formatDate(latestProof.timestamp)}
                   </p>
                 </div>
-                {proof.transactionHash && (
+                <div className="flex items-center gap-2">
                   <a
-                    href={getExplorerUrl(proof.transactionHash)}
+                    href={getBlockUrl(latestProof.blockNumber)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-[#0052FF] hover:text-[#0040CC] text-sm"
+                    className="flex items-center gap-1 text-gray-400 hover:text-blue-400 text-[10px] transition-colors"
+                    style={{ opacity: 0.6 }}
+                    title={`Block #${latestProof.blockNumber}`}
                   >
-                    <Link2 className="w-4 h-4" />
-                    View on BaseScan
+                    <span>#{latestProof.blockNumber}</span>
                   </a>
-                )}
+                  <a
+                    href={getExplorerUrl(latestProof.transactionHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-gray-400 hover:text-blue-400 text-[10px] transition-colors"
+                    style={{ opacity: 0.6 }}
+                    title="View transaction on BaseScan"
+                  >
+                    <Link className="w-3 h-3" weight="regular" />
+                    View TX
+                  </a>
+                </div>
               </div>
-              <div className="mt-2">
-                <p className="text-xs text-gray-500 font-mono break-all">
-                  Hash: {proof.hash}
-                </p>
-              </div>
+              {latestProof.skillScores && latestProof.skillScores.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.05)]">
+                  <p className="text-xs text-gray-500 mb-1.5">Skill Scores:</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {latestProof.skillScores.map((score, i) => (
+                      <span
+                        key={i}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-[rgba(255,255,255,0.08)] text-blue-300"
+                      >
+                        {score}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          ))}
+          )}
+
+          {/* Proof history */}
+          {proofs.length > 1 && (
+            <div className="space-y-1.5">
+              {proofs.slice(1).map((proof, index) => {
+                const proofId = proof.id || index + 2;
+                const isExpanded = expandedProofs.has(proofId);
+                
+                return (
+                  <div
+                    key={proof.transactionHash || index}
+                    className="p-2.5 rounded-[12px] bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-1">
+                        <button
+                          onClick={() => toggleProof(proofId)}
+                          className="text-gray-400 hover:text-gray-300"
+                        >
+                          {isExpanded ? (
+                            <CaretUp className="w-3 h-3" weight="bold" />
+                          ) : (
+                            <CaretDown className="w-3 h-3" weight="bold" />
+                          )}
+                        </button>
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-white">
+                            Snapshot #{proofId}
+                          </p>
+                          <p className="text-[10px] text-gray-400" style={{ opacity: 0.6 }}>
+                            {formatDate(proof.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={getBlockUrl(proof.blockNumber)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-gray-400 hover:text-[#3b76ef] text-[10px] transition-colors"
+                          style={{ opacity: 0.6 }}
+                          title={`Block #${proof.blockNumber}`}
+                        >
+                          #{proof.blockNumber}
+                        </a>
+                        <a
+                          href={getExplorerUrl(proof.transactionHash)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-gray-400 hover:text-[#3b76ef] text-[10px] transition-colors"
+                          style={{ opacity: 0.6 }}
+                          title="View transaction on BaseScan"
+                        >
+                          <Link className="w-3 h-3" weight="regular" />
+                          View
+                        </a>
+                      </div>
+                    </div>
+                    {isExpanded && (
+                      <div className="mt-2 pt-2 space-y-2 border-t border-[rgba(255,255,255,0.05)]">
+                        <div>
+                          <p className="text-[10px] text-gray-500 mb-1">Artifact Hash:</p>
+                          <p className="text-[10px] text-gray-400 font-mono break-all">
+                            {proof.artifactHash}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-gray-500 mb-1">Transaction:</p>
+                          <p className="text-[10px] text-gray-400 font-mono break-all">
+                            {proof.transactionHash}
+                          </p>
+                        </div>
+                        {proof.skillScores && proof.skillScores.length > 0 && (
+                          <div>
+                            <p className="text-[10px] text-gray-500 mb-1">Skill Scores:</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {proof.skillScores.map((score, i) => (
+                                <span
+                                  key={i}
+                                  className="text-[10px] px-1.5 py-0.5 rounded-full bg-[rgba(255,255,255,0.08)] text-gray-300"
+                                >
+                                  {score}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </Card>
