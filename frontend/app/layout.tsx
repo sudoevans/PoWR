@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Manrope } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./components/providers";
 
-const inter = Inter({
-  variable: "--font-inter",
+const manrope = Manrope({
+  variable: "--font-manrope",
   subsets: ["latin"],
   display: "swap",
 });
@@ -12,6 +12,11 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "PoWR - Proof of Work Reputation",
   description: "Verifiable, artifact-backed evidence of real work",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
   other: {
     "base:app_id": "693ead6ad19763ca26ddc2c5",
   },
@@ -25,7 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.variable} antialiased`}
+        className={`${manrope.variable} antialiased`}
       >
         <Providers>{children}</Providers>
       </body>

@@ -31,11 +31,13 @@ export interface Artifact {
 }
 
 export interface Proof {
-  id: string;
-  hash: string;
-  timestamp: string;
-  transactionHash?: string;
+  id?: number;
+  transactionHash: string;
+  artifactHash: string;
+  blockNumber: number;
+  timestamp: number;
   skillScores: number[];
+  createdAt?: string;
 }
 
 class ApiClient {
@@ -50,25 +52,44 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:52',message:'request start',data:{url,endpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+      });
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:61',message:'response received',data:{status:response.status,ok:response.ok,endpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      if (!response.ok) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:64',message:'response not ok',data:{status:response.status,statusText:response.statusText,endpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        throw new Error(`API error: ${response.statusText}`);
+      }
+      const data = await response.json();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:68',message:'request complete',data:{endpoint,hasData:!!data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      return data;
+    } catch (error) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:71',message:'request error',data:{error:(error as Error)?.message||String(error),endpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
+      throw error;
     }
-
-    return response.json();
   }
 
-  async getUserProfile(username: string, accessToken: string): Promise<PoWProfile> {
-    return this.request<PoWProfile>(
-      `/api/user/profile?username=${username}&access_token=${accessToken}`
-    );
+  async getUserProfile(username: string, accessToken?: string): Promise<PoWProfile> {
+    const url = accessToken 
+      ? `/api/user/profile?username=${username}&access_token=${accessToken}`
+      : `/api/user/profile?username=${username}`;
+    return this.request<PoWProfile>(url);
   }
 
   async getUserSkills(username: string, accessToken: string): Promise<{ skills: SkillPoWScore[] }> {
@@ -77,10 +98,11 @@ class ApiClient {
     );
   }
 
-  async getUserArtifacts(username: string, accessToken: string): Promise<{ artifacts: Artifact[] }> {
-    return this.request<{ artifacts: Artifact[] }>(
-      `/api/user/artifacts?username=${username}&access_token=${accessToken}`
-    );
+  async getUserArtifacts(username: string, accessToken?: string): Promise<{ artifacts: Artifact[] }> {
+    const url = accessToken
+      ? `/api/user/artifacts?username=${username}&access_token=${accessToken}`
+      : `/api/user/artifacts?username=${username}`;
+    return this.request<{ artifacts: Artifact[] }>(url);
   }
 
   async triggerAnalysis(
@@ -97,9 +119,59 @@ class ApiClient {
     );
   }
 
-  async getProofs(username: string): Promise<{ proofs: any[] }> {
-    return this.request<{ proofs: any[] }>(`/api/user/proofs?username=${username}`);
+  async getProofs(username: string): Promise<{ proofs: Proof[] }> {
+    return this.request<{ proofs: Proof[] }>(`/api/user/proofs?username=${username}`);
   }
+
+  async getProgress(username: string): Promise<{ stage: string; message: string; progress: number }> {
+    return this.request<{ stage: string; message: string; progress: number }>(`/api/user/progress?username=${username}`);
+  }
+
+  // Subscription methods
+  async getSubscriptionPlans(): Promise<{ plans: any[] }> {
+    return this.request<{ plans: any[] }>("/api/subscription/plans");
+  }
+
+  async getCurrentSubscription(username: string): Promise<{ subscription: any; plan: any }> {
+    return this.request<{ subscription: any; plan: any }>(`/api/subscription/current?username=${username}`);
+  }
+
+  async upgradeSubscription(username: string, planType: string, paymentTxHash?: string): Promise<{ success: boolean; message?: string }> {
+    return this.request<{ success: boolean; message?: string }>(`/api/subscription/upgrade?username=${username}`, {
+      method: "POST",
+      body: JSON.stringify({ planType, paymentTxHash }),
+    });
+  }
+
+  async cancelSubscription(username: string): Promise<{ success: boolean; message?: string }> {
+    return this.request<{ success: boolean; message?: string }>(`/api/subscription/cancel?username=${username}`, {
+      method: "POST",
+    });
+  }
+
+  async getNextUpdateDate(username: string): Promise<{ nextUpdateDate: string | null; planType: string }> {
+    return this.request<{ nextUpdateDate: string | null; planType: string }>(`/api/subscription/next-update?username=${username}`);
+  }
+
+  // Payment methods
+  async createPaymentIntent(username: string, planType: string, currency: string = "eth"): Promise<{ paymentIntent: any }> {
+    return this.request<{ paymentIntent: any }>(`/api/payments/create?username=${username}`, {
+      method: "POST",
+      body: JSON.stringify({ planType, currency }),
+    });
+  }
+
+  async verifyPayment(username: string, txHash: string, planType: string): Promise<{ success: boolean; message?: string }> {
+    return this.request<{ success: boolean; message?: string }>(`/api/payments/verify?username=${username}`, {
+      method: "POST",
+      body: JSON.stringify({ txHash, planType }),
+    });
+  }
+
+  async getPaymentStatus(txHash: string): Promise<{ status: string; transaction?: any }> {
+    return this.request<{ status: string; transaction?: any }>(`/api/payments/status/${txHash}`);
+  }
+
 }
 
 export const apiClient = new ApiClient();
