@@ -1,12 +1,42 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "../components/ui";
 import { Github } from "lucide-react";
 
 export default function AuthPage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check if user is already logged in with valid token
+    const token = localStorage.getItem("github_token");
+    const username = localStorage.getItem("github_username");
+    
+    if (token && username) {
+      // Validate token
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+      fetch(`${apiBaseUrl}/api/auth/validate?token=${encodeURIComponent(token)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.valid) {
+            // Token is valid, redirect to dashboard
+            router.push("/dashboard");
+          }
+        })
+        .catch(() => {
+          // Validation failed, clear invalid token
+          localStorage.removeItem("github_token");
+          localStorage.removeItem("github_username");
+          localStorage.removeItem("github_token_timestamp");
+        });
+    }
+  }, [router]);
+
   const handleGitHubLogin = () => {
     // Redirect to backend OAuth endpoint
-    window.location.href = "http://localhost:3001/api/auth/github";
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    window.location.href = `${apiBaseUrl}/api/auth/github`;
   };
 
   return (
