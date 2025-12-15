@@ -99,6 +99,37 @@ export class DatabaseService {
     });
   }
 
+  // Alias for compatibility
+  createSubscription(username: string, planType: string, paymentAddress?: string) {
+    this.saveSubscription(username, {
+      plan_type: planType,
+      status: "active",
+      payment_address: paymentAddress,
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  // Alias for compatibility  
+  updateSubscription(username: string, updates: any) {
+    const existing = store.subscriptions.get(username) || {};
+    store.subscriptions.set(username, {
+      ...existing,
+      ...updates,
+      username,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  // Alias for compatibility
+  cancelSubscription(username: string) {
+    const sub = store.subscriptions.get(username);
+    if (sub) {
+      sub.status = "cancelled";
+      sub.updated_at = new Date().toISOString();
+      store.subscriptions.set(username, sub);
+    }
+  }
+
   getSubscription(username: string): any | null {
     return store.subscriptions.get(username) || null;
   }
@@ -139,12 +170,22 @@ export class DatabaseService {
     if (update) update.status = "completed";
   }
 
+  // Alias for compatibility
+  markScheduledUpdateComplete(id: number) {
+    this.markUpdateComplete(id);
+  }
+
   markUpdateFailed(id: number, error: string) {
     const update = store.scheduledUpdates.find(u => u.id === id);
     if (update) {
       update.status = "failed";
       update.error = error;
     }
+  }
+
+  // Alias for compatibility
+  markScheduledUpdateFailed(id: number, error: string) {
+    this.markUpdateFailed(id, error);
   }
 
   // Payment management
@@ -165,6 +206,11 @@ export class DatabaseService {
 
   updatePaymentStatus(txHash: string, status: string, blockNumber?: number) {
     console.log(`Payment status updated: ${txHash} -> ${status}`);
+  }
+
+  // Alias for compatibility
+  updatePaymentTransactionStatus(txHash: string, status: string, blockNumber?: number) {
+    this.updatePaymentStatus(txHash, status, blockNumber);
   }
 
   // Cleanup old data (no-op for in-memory)
