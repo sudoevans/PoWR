@@ -199,6 +199,7 @@ router.post("/analyze", async (req, res) => {
     }
 
     const { subscriptionService } = await import("../services/subscriptionService");
+    const { ComprehensiveAnalysisService } = await import("../services/comprehensiveAnalysis");
     
     // Ensure user has at least a free plan
     await subscriptionService.ensureFreePlan(username);
@@ -228,25 +229,68 @@ router.post("/analyze", async (req, res) => {
       }
     }
 
+    // Use comprehensive analysis service with AI + heuristic fallback
+    const analysisService = new ComprehensiveAnalysisService(token);
+    const devProfile = await analysisService.analyzeUser(username, monthsBack || 12);
+    
+    console.log(`[ANALYZE] Comprehensive analysis complete: ${devProfile.totalRepos} repos, ${devProfile.totalCommits} commits`);
+    console.log(`[ANALYZE] Skill scores: backend=${devProfile.skillScores.backend}, frontend=${devProfile.skillScores.frontend}, devops=${devProfile.skillScores.devops}, systems=${devProfile.skillScores.systems}`);
+    console.log(`[ANALYZE] Method: ${devProfile.analysisMethod}, confidence: ${devProfile.confidence}`);
+
+    // Convert to PoWProfile format for storage
+    const profile = {
+      skills: [
+        {
+          skill: "Backend Engineering",
+          score: devProfile.skillScores.backend,
+          percentile: calculatePercentile(devProfile.skillScores.backend),
+          confidence: devProfile.confidence,
+          artifactCount: devProfile.totalRepos,
+        },
+        {
+          skill: "Frontend Engineering",
+          score: devProfile.skillScores.frontend,
+          percentile: calculatePercentile(devProfile.skillScores.frontend),
+          confidence: devProfile.confidence,
+          artifactCount: devProfile.totalRepos,
+        },
+        {
+          skill: "DevOps / Infrastructure",
+          score: devProfile.skillScores.devops,
+          percentile: calculatePercentile(devProfile.skillScores.devops),
+          confidence: devProfile.confidence,
+          artifactCount: devProfile.totalRepos,
+        },
+        {
+          skill: "Systems / Architecture",
+          score: devProfile.skillScores.systems,
+          percentile: calculatePercentile(devProfile.skillScores.systems),
+          confidence: devProfile.confidence,
+          artifactCount: devProfile.totalRepos,
+        },
+      ],
+      overallIndex: devProfile.skillScores.overall,
+      artifactSummary: {
+        repos: devProfile.totalRepos,
+        commits: devProfile.totalCommits,
+        pullRequests: 0, // Not tracked in comprehensive analysis
+        mergedPRs: 0,
+      },
+      // Extended data
+      topLanguages: devProfile.topLanguages,
+      totalAdditions: devProfile.totalAdditions,
+      totalDeletions: devProfile.totalDeletions,
+      totalStars: devProfile.totalStars,
+      analysisMethod: devProfile.analysisMethod,
+    };
+
+    // Also fetch artifacts for storage
     const ingestionService = new ArtifactIngestionService(token);
-    
-    // Use standard ingestion - same as /artifacts endpoint which works
     const ingested = await ingestionService.ingestUserArtifacts(username, monthsBack || 12);
-    console.log(`[ANALYZE] Ingested: ${ingested.repos.length} repos, ${ingested.commits.length} commits, ${ingested.pullRequests.length} PRs`);
-    
-    const artifacts = ingestionService.normalizeArtifacts(ingested, username as string);
-    console.log(`[ANALYZE] Normalized artifacts: ${artifacts.length}`);
-
-    const aiService = new AIAnalysisService();
-    const aiExtraction = await aiService.extractSkills(username, artifacts, ingested.timeWindow);
-    console.log(`[ANALYZE] AI extraction: backend=${aiExtraction.backend_engineering?.score}, frontend=${aiExtraction.frontend_engineering?.score}`);
-
-    const scoringEngine = new ScoringEngine();
-    const profile = await scoringEngine.generatePoWProfile(artifacts, aiExtraction);
-    console.log(`[ANALYZE] Profile: repos=${profile.artifactSummary.repos}, overall=${profile.overallIndex}`);
+    const artifacts = ingestionService.normalizeArtifacts(ingested, username);
 
     await dbService.saveArtifacts(username, artifacts);
-    await dbService.saveProfile(username, profile, artifacts.length);
+    await dbService.saveProfile(username, profile, devProfile.totalRepos);
 
     if (blockchainService.isConfigured()) {
       try {
@@ -272,12 +316,26 @@ router.post("/analyze", async (req, res) => {
     res.json({
       success: true,
       profile,
-      artifactsCount: artifacts.length,
+      artifactsCount: devProfile.totalRepos,
+      analysisMethod: devProfile.analysisMethod,
     });
   } catch (error: any) {
     console.error("Analysis error:", error);
     res.status(500).json({ error: error.message || "Failed to analyze artifacts" });
   }
+
+// Helper function to calculate percentile from score
+function calculatePercentile(score: number): number {
+  if (score >= 90) return 10;
+  if (score >= 80) return 20;
+  if (score >= 70) return 30;
+  if (score >= 60) return 40;
+  if (score >= 50) return 50;
+  if (score >= 40) return 60;
+  if (score >= 30) return 70;
+  if (score >= 20) return 80;
+  return 90;
+}
 });
 
 // Get progress for a user
