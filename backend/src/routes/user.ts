@@ -230,24 +230,15 @@ router.post("/analyze", async (req, res) => {
 
     const ingestionService = new ArtifactIngestionService(token);
     
-    // Use fast ingestion mode for better reliability
-    const fastData = await ingestionService.ingestFast(username, monthsBack || 12);
-    console.log(`[ANALYZE] Fast data: ${fastData.repos.length} repos`);
+    // Use standard ingestion - same as /artifacts endpoint which works
+    const ingested = await ingestionService.ingestUserArtifacts(username, monthsBack || 12);
+    console.log(`[ANALYZE] Ingested: ${ingested.repos.length} repos, ${ingested.commits.length} commits, ${ingested.pullRequests.length} PRs`);
     
-    const artifacts = ingestionService.normalizeFastData(fastData, username as string);
-    console.log(`[ANALYZE] Normalized artifacts: ${artifacts.length}, types: ${artifacts.map(a => a.type).join(', ')}`);
-    
-    // Log first artifact for debugging
-    if (artifacts.length > 0) {
-      const firstRepo = artifacts.find(a => a.type === 'repo');
-      if (firstRepo) {
-        const data = firstRepo.data as any;
-        console.log(`[ANALYZE] Sample repo: ${data.full_name}, fork: ${data.fork}, language: ${data.language}`);
-      }
-    }
+    const artifacts = ingestionService.normalizeArtifacts(ingested, username as string);
+    console.log(`[ANALYZE] Normalized artifacts: ${artifacts.length}`);
 
     const aiService = new AIAnalysisService();
-    const aiExtraction = await aiService.extractSkills(username, artifacts, fastData.timeWindow);
+    const aiExtraction = await aiService.extractSkills(username, artifacts, ingested.timeWindow);
     console.log(`[ANALYZE] AI extraction: backend=${aiExtraction.backend_engineering?.score}, frontend=${aiExtraction.frontend_engineering?.score}`);
 
     const scoringEngine = new ScoringEngine();
