@@ -281,6 +281,7 @@ export class ScoringEngine {
     const validated: Artifact[] = [];
     const reposWithContributions = new Set<string>();
 
+    // Track repos that have commits/PRs
     artifacts.forEach((artifact) => {
       if (artifact.type === "commit" || artifact.type === "pull_request") {
         if (artifact.repository) {
@@ -293,17 +294,37 @@ export class ScoringEngine {
     artifacts.forEach((artifact) => {
       if (artifact.type === "repo") {
         const repo = artifact.data as any;
-        const repoKey = repo.full_name;
         
+        // Skip forks without user contributions
         if (repo.fork) {
-          return;
+          // Allow fork if user has contribution stats
+          if (!repo.user_contribution_stats || repo.user_contribution_stats.totalCommits === 0) {
+            return;
+          }
         }
         
-        if (!reposWithContributions.has(repoKey)) {
-          return;
+        // For fast ingestion mode: use user_contribution_stats or languages_breakdown
+        // to determine if user has contributed
+        const hasContributionStats = repo.user_contribution_stats && 
+          (repo.user_contribution_stats.totalCommits > 0 || 
+           repo.user_contribution_stats.additions > 0);
+        const hasLanguages = repo.languages_breakdown && 
+          Object.keys(repo.languages_breakdown).length > 0;
+        const hasActivity = repo.pushed_at && 
+          new Date(repo.pushed_at) > new Date(Date.now() - 365 * 24 * 60 * 60 * 1000); // Active in last year
+        
+        // Include repo if:
+        // 1. Has explicit contribution stats, OR
+        // 2. Has languages and recent activity (user owns it), OR
+        // 3. Has commits/PRs tracked
+        const repoKey = repo.full_name;
+        if (hasContributionStats || hasLanguages || reposWithContributions.has(repoKey) || hasActivity) {
+          validated.push(artifact);
         }
+        return;
       }
       
+      // Include all commits and PRs
       validated.push(artifact);
     });
 
