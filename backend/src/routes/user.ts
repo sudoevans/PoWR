@@ -232,13 +232,27 @@ router.post("/analyze", async (req, res) => {
     
     // Use fast ingestion mode for better reliability
     const fastData = await ingestionService.ingestFast(username, monthsBack || 12);
+    console.log(`[ANALYZE] Fast data: ${fastData.repos.length} repos`);
+    
     const artifacts = ingestionService.normalizeFastData(fastData, username as string);
+    console.log(`[ANALYZE] Normalized artifacts: ${artifacts.length}, types: ${artifacts.map(a => a.type).join(', ')}`);
+    
+    // Log first artifact for debugging
+    if (artifacts.length > 0) {
+      const firstRepo = artifacts.find(a => a.type === 'repo');
+      if (firstRepo) {
+        const data = firstRepo.data as any;
+        console.log(`[ANALYZE] Sample repo: ${data.full_name}, fork: ${data.fork}, language: ${data.language}`);
+      }
+    }
 
     const aiService = new AIAnalysisService();
     const aiExtraction = await aiService.extractSkills(username, artifacts, fastData.timeWindow);
+    console.log(`[ANALYZE] AI extraction: backend=${aiExtraction.backend_engineering?.score}, frontend=${aiExtraction.frontend_engineering?.score}`);
 
     const scoringEngine = new ScoringEngine();
     const profile = await scoringEngine.generatePoWProfile(artifacts, aiExtraction);
+    console.log(`[ANALYZE] Profile: repos=${profile.artifactSummary.repos}, overall=${profile.overallIndex}`);
 
     await dbService.saveArtifacts(username, artifacts);
     await dbService.saveProfile(username, profile, artifacts.length);
