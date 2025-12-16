@@ -278,49 +278,25 @@ export class ScoringEngine {
   }
 
   private validateArtifactOwnership(artifacts: Artifact[]): Artifact[] {
+    console.log(`validateArtifactOwnership: Processing ${artifacts.length} artifacts`);
+    
+    // For fast ingestion mode, we only have repos - include all non-fork repos
+    // The filtering was too aggressive and removing everything
     const validated: Artifact[] = [];
-    const reposWithContributions = new Set<string>();
-
-    // Track repos that have commits/PRs
-    artifacts.forEach((artifact) => {
-      if (artifact.type === "commit" || artifact.type === "pull_request") {
-        if (artifact.repository) {
-          const repoKey = `${artifact.repository.owner}/${artifact.repository.name}`;
-          reposWithContributions.add(repoKey);
-        }
-      }
-    });
-
+    
     artifacts.forEach((artifact) => {
       if (artifact.type === "repo") {
         const repo = artifact.data as any;
         
-        // Skip forks without user contributions
+        // Skip forks (user didn't create them)
         if (repo.fork) {
-          // Allow fork if user has contribution stats
-          if (!repo.user_contribution_stats || repo.user_contribution_stats.totalCommits === 0) {
-            return;
-          }
+          console.log(`Skipping fork: ${repo.full_name}`);
+          return;
         }
         
-        // For fast ingestion mode: use user_contribution_stats or languages_breakdown
-        // to determine if user has contributed
-        const hasContributionStats = repo.user_contribution_stats && 
-          (repo.user_contribution_stats.totalCommits > 0 || 
-           repo.user_contribution_stats.additions > 0);
-        const hasLanguages = repo.languages_breakdown && 
-          Object.keys(repo.languages_breakdown).length > 0;
-        const hasActivity = repo.pushed_at && 
-          new Date(repo.pushed_at) > new Date(Date.now() - 365 * 24 * 60 * 60 * 1000); // Active in last year
-        
-        // Include repo if:
-        // 1. Has explicit contribution stats, OR
-        // 2. Has languages and recent activity (user owns it), OR
-        // 3. Has commits/PRs tracked
-        const repoKey = repo.full_name;
-        if (hasContributionStats || hasLanguages || reposWithContributions.has(repoKey) || hasActivity) {
-          validated.push(artifact);
-        }
+        // Include all owned repos (not forks)
+        console.log(`Including repo: ${repo.full_name}, language: ${repo.language}, languages_breakdown: ${JSON.stringify(repo.languages_breakdown || {})}`);
+        validated.push(artifact);
         return;
       }
       
@@ -328,6 +304,7 @@ export class ScoringEngine {
       validated.push(artifact);
     });
 
+    console.log(`validateArtifactOwnership: Validated ${validated.length} artifacts`);
     return validated;
   }
 }
