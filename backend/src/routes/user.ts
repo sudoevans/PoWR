@@ -281,6 +281,9 @@ router.post("/analyze", async (req, res) => {
       totalAdditions: devProfile.totalAdditions,
       totalDeletions: devProfile.totalDeletions,
       totalStars: devProfile.totalStars,
+      totalIssues: devProfile.totalIssues,
+      accountAge: devProfile.accountAge,
+      recentActivity: devProfile.recentActivity,
       analysisMethod: devProfile.analysisMethod,
     };
 
