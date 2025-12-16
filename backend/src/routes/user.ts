@@ -203,14 +203,19 @@ router.post("/analyze", async (req, res) => {
     // Ensure user has at least a free plan
     await subscriptionService.ensureFreePlan(username);
     
-    const canUpdate = await subscriptionService.canUserUpdate(username);
+    // Check if user already has a profile (first analysis is always allowed)
+    const existingProfile = await dbService.getProfile(username);
+    const isFirstAnalysis = !existingProfile;
     
-    if (!canUpdate.allowed) {
-      return res.status(403).json({
-        error: "Update not allowed",
-        reason: canUpdate.reason,
-        message: "Please upgrade your plan or wait for your scheduled update date.",
-      });
+    if (!isFirstAnalysis) {
+      const canUpdate = await subscriptionService.canUserUpdate(username);
+      if (!canUpdate.allowed) {
+        return res.status(403).json({
+          error: "Update not allowed",
+          reason: canUpdate.reason,
+          message: "Please upgrade your plan or wait for your scheduled update date.",
+        });
+      }
     }
 
     let token = access_token as string;
@@ -224,11 +229,13 @@ router.post("/analyze", async (req, res) => {
     }
 
     const ingestionService = new ArtifactIngestionService(token);
-    const ingested = await ingestionService.ingestUserArtifacts(username, monthsBack || 12);
-    const artifacts = ingestionService.normalizeArtifacts(ingested, username as string);
+    
+    // Use fast ingestion mode for better reliability
+    const fastData = await ingestionService.ingestFast(username, monthsBack || 12);
+    const artifacts = ingestionService.normalizeFastData(fastData, username as string);
 
     const aiService = new AIAnalysisService();
-    const aiExtraction = await aiService.extractSkills(username, artifacts, ingested.timeWindow);
+    const aiExtraction = await aiService.extractSkills(username, artifacts, fastData.timeWindow);
 
     const scoringEngine = new ScoringEngine();
     const profile = await scoringEngine.generatePoWProfile(artifacts, aiExtraction);

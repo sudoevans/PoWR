@@ -170,12 +170,15 @@ export class SubscriptionService {
 
   async canUserUpdate(username: string): Promise<{ allowed: boolean; reason?: string }> {
     const subscription = await this.getUserPlan(username);
+    
+    // No subscription = first time user, always allow
     if (!subscription) {
-      return { allowed: false, reason: "No subscription found" };
+      return { allowed: true };
     }
 
     const planType = subscription.planType as PlanType;
 
+    // Pro users always allowed
     if (planType === "pro") {
       return { allowed: true };
     }
@@ -186,6 +189,7 @@ export class SubscriptionService {
         ? new Date(subscription.nextUpdateDate)
         : null;
 
+      // No scheduled update yet = first analysis, allow
       if (!nextUpdate) {
         return { allowed: true };
       }
@@ -193,7 +197,13 @@ export class SubscriptionService {
       const timeDiff = nextUpdate.getTime() - now.getTime();
       const hoursUntilUpdate = timeDiff / (1000 * 60 * 60);
 
+      // Allow if within 24 hours of scheduled update (before or after)
       if (hoursUntilUpdate <= 24 && hoursUntilUpdate >= -24) {
+        return { allowed: true };
+      }
+
+      // Also allow if update was scheduled in the past (missed update)
+      if (hoursUntilUpdate < -24) {
         return { allowed: true };
       }
 
@@ -203,7 +213,8 @@ export class SubscriptionService {
       };
     }
 
-    return { allowed: false, reason: "Unknown plan type" };
+    // Unknown plan type - allow to prevent blocking users
+    return { allowed: true };
   }
 }
 
