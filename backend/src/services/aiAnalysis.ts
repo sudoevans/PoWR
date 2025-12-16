@@ -85,49 +85,54 @@ export class AIAnalysisService {
     artifacts: Artifact[],
     timeWindow: { start: string; end: string }
   ): Promise<SkillExtraction> {
-    // Collect language and repo data for analysis
-    const languages = new Map<string, number>(); // language -> bytes
-    const repoCount = artifacts.filter((a) => a.type === "repo").length;
-    const commitCount = artifacts.filter((a) => a.type === "commit").length;
-    const prCount = artifacts.filter((a) => a.type === "pull_request").length;
+    try {
+      // Collect language and repo data for analysis
+      const languages = new Map<string, number>(); // language -> bytes
+      const repoCount = artifacts?.filter((a) => a.type === "repo").length || 0;
+      const commitCount = artifacts?.filter((a) => a.type === "commit").length || 0;
+      const prCount = artifacts?.filter((a) => a.type === "pull_request").length || 0;
 
-    artifacts.forEach((artifact) => {
-      if (artifact.type === "repo") {
-        const repo = artifact.data as any;
-        if (repo.language) {
-          languages.set(repo.language, (languages.get(repo.language) || 0) + 1);
-        }
-        // Also check languages_breakdown if available (from fast mode)
-        if (repo.languages_breakdown) {
-          for (const [lang, bytes] of Object.entries(repo.languages_breakdown)) {
-            languages.set(lang, (languages.get(lang) || 0) + (bytes as number));
+      (artifacts || []).forEach((artifact) => {
+        if (artifact.type === "repo") {
+          const repo = artifact.data as any;
+          if (repo.language) {
+            languages.set(repo.language, (languages.get(repo.language) || 0) + 1);
+          }
+          // Also check languages_breakdown if available (from fast mode)
+          if (repo.languages_breakdown) {
+            for (const [lang, bytes] of Object.entries(repo.languages_breakdown)) {
+              languages.set(lang, (languages.get(lang) || 0) + (bytes as number));
+            }
           }
         }
+      });
+
+      // If no API key, use heuristic-based scoring
+      if (!this.hasApiKey()) {
+        console.log(`Using heuristic scoring for ${username}: ${repoCount} repos, ${commitCount} commits, ${prCount} PRs`);
+        return this.heuristicSkillExtraction(artifacts || [], languages, repoCount, commitCount, prCount);
       }
-    });
 
-    // If no API key, use heuristic-based scoring
-    if (!this.hasApiKey()) {
-      console.log(`Using heuristic scoring for ${username}: ${repoCount} repos, ${commitCount} commits, ${prCount} PRs`);
-      return this.heuristicSkillExtraction(artifacts, languages, repoCount, commitCount, prCount);
-    }
+      // Build prompt for AI
+      const prompt = this.buildSkillExtractionPrompt(
+        username,
+        repoCount,
+        commitCount,
+        prCount,
+        Array.from(languages.keys()),
+        timeWindow
+      );
 
-    // Build prompt for AI
-    const prompt = this.buildSkillExtractionPrompt(
-      username,
-      repoCount,
-      commitCount,
-      prCount,
-      Array.from(languages.keys()),
-      timeWindow
-    );
-
-    try {
-      const response = await this.callAI(prompt);
-      return this.parseSkillExtraction(response);
+      try {
+        const response = await this.callAI(prompt);
+        return this.parseSkillExtraction(response);
+      } catch (error) {
+        console.error("AI analysis error, falling back to heuristics:", error);
+        return this.heuristicSkillExtraction(artifacts || [], languages, repoCount, commitCount, prCount);
+      }
     } catch (error) {
-      console.error("AI analysis error, falling back to heuristics:", error);
-      return this.heuristicSkillExtraction(artifacts, languages, repoCount, commitCount, prCount);
+      console.error("Skill extraction failed, returning defaults:", error);
+      return this.getDefaultSkillExtraction();
     }
   }
 

@@ -42,8 +42,16 @@ export class ScoringEngine {
       { key: "systems_architecture", name: "Systems / Architecture" },
     ];
 
+    // Ensure aiExtraction has valid structure
+    const safeExtraction = aiExtraction || {
+      backend_engineering: { score: 0, confidence: 0, evidence: [] },
+      frontend_engineering: { score: 0, confidence: 0, evidence: [] },
+      devops_infrastructure: { score: 0, confidence: 0, evidence: [] },
+      systems_architecture: { score: 0, confidence: 0, evidence: [] },
+    };
+
     for (const category of skillCategories) {
-      const aiScore = aiExtraction[category.key as keyof SkillExtraction] as any;
+      const aiScore = safeExtraction[category.key as keyof SkillExtraction] || { score: 0, confidence: 0, evidence: [] };
       
       const powScore = await this.calculateSkillPoW(
         category.key,
@@ -55,7 +63,7 @@ export class ScoringEngine {
         skill: category.name,
         score: powScore,
         percentile: this.calculatePercentile(powScore),
-        confidence: aiScore.confidence || 0,
+        confidence: aiScore?.confidence || 0,
         artifactCount: this.countRelevantArtifacts(artifacts, category.key),
       });
     }
@@ -81,7 +89,9 @@ export class ScoringEngine {
       collaborationScore * 0.2 +
       consistencyScore * 0.15;
 
-    const confidenceMultiplier = (aiScore.confidence || 50) / 100;
+    // Safe access to confidence with fallback
+    const confidence = aiScore?.confidence ?? 50;
+    const confidenceMultiplier = confidence / 100;
     const adjustedScore = powScore * confidenceMultiplier + powScore * (1 - confidenceMultiplier) * 0.5;
 
     return Math.min(100, Math.max(0, Math.round(adjustedScore)));
