@@ -52,37 +52,19 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:52',message:'request start',data:{url,endpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          ...options.headers,
-        },
-      });
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:61',message:'response received',data:{status:response.status,ok:response.ok,endpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
-      if (!response.ok) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:64',message:'response not ok',data:{status:response.status,statusText:response.statusText,endpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
-        throw new Error(`API error: ${response.statusText}`);
-      }
-      const data = await response.json();
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:68',message:'request complete',data:{endpoint,hasData:!!data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
-      return data;
-    } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e50544f0-1e4f-47a1-90ac-c89d010c6423',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lib/api.ts:71',message:'request error',data:{error:(error as Error)?.message||String(error),endpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
-      throw error;
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`);
     }
+
+    return response.json();
   }
 
   async getUserProfile(username: string, accessToken?: string): Promise<PoWProfile> {
