@@ -273,8 +273,8 @@ router.post("/analyze", async (req, res) => {
       artifactSummary: {
         repos: devProfile.totalRepos,
         commits: devProfile.totalCommits,
-        pullRequests: 0, // Not tracked in comprehensive analysis
-        mergedPRs: 0,
+        pullRequests: devProfile.totalPRs,
+        mergedPRs: devProfile.totalMergedPRs,
       },
       // Extended data
       topLanguages: devProfile.topLanguages,
