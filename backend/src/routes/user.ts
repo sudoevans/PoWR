@@ -42,7 +42,7 @@ router.get("/profile", async (req, res) => {
 
     progressTracker.setProgress(username as string, "ingestion", "Fetching your repositories...", 10);
     const ingestionService = new ArtifactIngestionService(token);
-    
+
     // Use FAST mode - only fetches repo metadata + events (~18 API calls vs 100+)
     const fastData = await ingestionService.ingestFast(username as string, 12);
     progressTracker.setProgress(username as string, "ingestion", `Found ${fastData.repos.length} repos with ${fastData.recentEvents.length} recent events`, 30);
@@ -62,34 +62,17 @@ router.get("/profile", async (req, res) => {
 
     const scoringEngine = new ScoringEngine();
     const profile = await scoringEngine.generatePoWProfile(artifacts, aiExtraction);
-    
+
     // Save profile to database
     await dbService.saveProfile(username as string, profile, artifacts.length);
-    
+
     // Ensure user has a subscription (creates free plan if first time)
     const { subscriptionService } = await import("../services/subscriptionService");
     const subscription = await subscriptionService.ensureFreePlan(username as string);
-    
-    // Anchor to blockchain if configured (publish PoW to Sepolia)
-    if (blockchainService.isConfigured()) {
-      try {
-        progressTracker.setProgress(username as string, "blockchain", "Anchoring proof to blockchain...", 90);
-        const proof = await blockchainService.anchorSnapshot(artifacts, profile);
-        
-        // Save blockchain proof to database
-        await dbService.saveBlockchainProof(
-          username as string,
-          proof.transactionHash,
-          proof.artifactHash,
-          proof.blockNumber,
-          proof.timestamp,
-          proof.skillScores
-        );
-      } catch (error: any) {
-        console.error("Blockchain anchoring failed (non-critical):", error);
-      }
-    }
-    
+
+    // Profile saved - blockchain publishing is now a separate step
+    // User can manually publish via /api/user/publish-proof endpoint
+
     // Schedule next update based on subscription tier (if not already scheduled)
     if (subscription) {
       const allScheduled = await dbService.getScheduledUpdates();
@@ -100,10 +83,10 @@ router.get("/profile", async (req, res) => {
         await subscriptionService.scheduleUpdate(username as string, subscription.planType as any);
       }
     }
-    
+
     progressTracker.setProgress(username as string, "complete", "Profile generated!", 100);
 
-    res.json(profile);
+    res.json({ ...profile, unpublished: true });
     setTimeout(() => progressTracker.clearProgress(username as string), 1000);
   } catch (error: any) {
     console.error("Profile error:", error);
@@ -179,7 +162,7 @@ router.get("/artifacts", async (req, res) => {
     const ingestionService = new ArtifactIngestionService(token);
     const ingested = await ingestionService.ingestUserArtifacts(username as string, 12);
     const artifacts = ingestionService.normalizeArtifacts(ingested, username as string);
-    
+
     await dbService.saveArtifacts(username as string, artifacts);
 
     res.json({ artifacts });
@@ -200,24 +183,12 @@ router.post("/analyze", async (req, res) => {
 
     const { subscriptionService } = await import("../services/subscriptionService");
     const { ComprehensiveAnalysisService } = await import("../services/comprehensiveAnalysis");
-    
+
     // Ensure user has at least a free plan
     await subscriptionService.ensureFreePlan(username);
-    
-    // Check if user already has a profile (first analysis is always allowed)
-    const existingProfile = await dbService.getProfile(username);
-    const isFirstAnalysis = !existingProfile;
-    
-    if (!isFirstAnalysis) {
-      const canUpdate = await subscriptionService.canUserUpdate(username);
-      if (!canUpdate.allowed) {
-        return res.status(403).json({
-          error: "Update not allowed",
-          reason: canUpdate.reason,
-          message: "Please upgrade your plan or wait for your scheduled update date.",
-        });
-      }
-    }
+
+    // Analysis is FREE for all users - no subscription check needed
+    // Publishing to blockchain is what requires subscription (handled separately)
 
     let token = access_token as string;
     if (!token) {
@@ -232,10 +203,27 @@ router.post("/analyze", async (req, res) => {
     // Use comprehensive analysis service with AI + heuristic fallback
     const analysisService = new ComprehensiveAnalysisService(token);
     const devProfile = await analysisService.analyzeUser(username, monthsBack || 12);
-    
+
     console.log(`[ANALYZE] Comprehensive analysis complete: ${devProfile.totalRepos} repos, ${devProfile.totalCommits} commits`);
     console.log(`[ANALYZE] Skill scores: backend=${devProfile.skillScores.backend}, frontend=${devProfile.skillScores.frontend}, devops=${devProfile.skillScores.devops}, systems=${devProfile.skillScores.systems}`);
     console.log(`[ANALYZE] Method: ${devProfile.analysisMethod}, confidence: ${devProfile.confidence}`);
+
+    // Generate Profile Summary using AI Analysis Service
+    const aiService = new AIAnalysisService();
+    const summarySkills: any = {
+      backend_engineering: { score: devProfile.skillScores.backend, confidence: devProfile.confidence },
+      frontend_engineering: { score: devProfile.skillScores.frontend, confidence: devProfile.confidence },
+      devops_infrastructure: { score: devProfile.skillScores.devops, confidence: devProfile.confidence },
+      systems_architecture: { score: devProfile.skillScores.systems, confidence: devProfile.confidence },
+    };
+
+    // Generate summary
+    let profileSummary = "Developer verified by PoWR.";
+    try {
+      profileSummary = await aiService.generateProfileSummary(username, summarySkills);
+    } catch (err) {
+      console.error("Summary generation error:", err);
+    }
 
     // Convert to PoWProfile format for storage
     const profile = {
@@ -276,6 +264,7 @@ router.post("/analyze", async (req, res) => {
         pullRequests: devProfile.totalPRs,
         mergedPRs: devProfile.totalMergedPRs,
       },
+      summary: profileSummary,
       // Extended data
       topLanguages: devProfile.topLanguages,
       totalAdditions: devProfile.totalAdditions,
@@ -292,24 +281,14 @@ router.post("/analyze", async (req, res) => {
     const ingested = await ingestionService.ingestUserArtifacts(username, monthsBack || 12);
     const artifacts = ingestionService.normalizeArtifacts(ingested, username);
 
-    await dbService.saveArtifacts(username, artifacts);
-    await dbService.saveProfile(username, profile, devProfile.totalRepos);
+    // Generate artifact hash for change detection
+    const artifactHash = blockchainService.generateArtifactHash(artifacts);
 
-    if (blockchainService.isConfigured()) {
-      try {
-        const proof = await blockchainService.anchorSnapshot(artifacts, profile);
-        await dbService.saveBlockchainProof(
-          username,
-          proof.transactionHash,
-          proof.artifactHash,
-          proof.blockNumber,
-          proof.timestamp,
-          proof.skillScores
-        );
-      } catch (error) {
-        console.error("Blockchain anchoring failed (non-critical):", error);
-      }
-    }
+    await dbService.saveArtifacts(username, artifacts);
+    await dbService.saveProfile(username, profile, devProfile.totalRepos, artifactHash);
+
+    // Profile saved - blockchain publishing is now a separate step
+    // User can manually publish via /api/user/publish-proof endpoint
 
     const subscription = await subscriptionService.getUserPlan(username);
     if (subscription) {
@@ -321,24 +300,25 @@ router.post("/analyze", async (req, res) => {
       profile,
       artifactsCount: devProfile.totalRepos,
       analysisMethod: devProfile.analysisMethod,
+      unpublished: true,
     });
   } catch (error: any) {
     console.error("Analysis error:", error);
     res.status(500).json({ error: error.message || "Failed to analyze artifacts" });
   }
 
-// Helper function to calculate percentile from score
-function calculatePercentile(score: number): number {
-  if (score >= 90) return 10;
-  if (score >= 80) return 20;
-  if (score >= 70) return 30;
-  if (score >= 60) return 40;
-  if (score >= 50) return 50;
-  if (score >= 40) return 60;
-  if (score >= 30) return 70;
-  if (score >= 20) return 80;
-  return 90;
-}
+  // Helper function to calculate percentile from score
+  function calculatePercentile(score: number): number {
+    if (score >= 90) return 10;
+    if (score >= 80) return 20;
+    if (score >= 70) return 30;
+    if (score >= 60) return 40;
+    if (score >= 50) return 50;
+    if (score >= 40) return 60;
+    if (score >= 30) return 70;
+    if (score >= 20) return 80;
+    return 90;
+  }
 });
 
 // Get progress for a user
@@ -372,6 +352,192 @@ router.get("/proofs", async (req, res) => {
   } catch (error: any) {
     console.error("Proofs error:", error);
     res.status(500).json({ error: "Failed to fetch proofs" });
+  }
+});
+
+// Get analysis status (including unpublished state)
+router.get("/analysis-status", async (req, res) => {
+  try {
+    const { username } = req.query;
+
+    if (!username) {
+      return res.status(400).json({ error: "Username required" });
+    }
+
+    // Get profile with last_analyzed date
+    const profileData = await dbService.getProfileWithMeta(username as string);
+
+    if (!profileData) {
+      return res.json({
+        hasProfile: false,
+        hasUnpublished: false,
+        lastAnalyzed: null,
+        lastPublished: null
+      });
+    }
+
+    const { profile, lastAnalyzed, artifactsCount, currentArtifactHash } = profileData;
+
+    // Get latest proof
+    const latestProof = await dbService.getLatestBlockchainProof(username as string);
+    const lastPublished = latestProof ? new Date(latestProof.timestamp * 1000) : null;
+
+    // Analysis is unpublished if:
+    // 1. There's a profile but no proofs (first time)
+    // 2. OR there is a proof, but the content has changed (hashes don't match)
+    // Note: We check hashes to avoid prompting publish if just timestamps changed but content didn't
+    let hasUnpublished = false;
+
+    if (!latestProof) {
+      // If no proofs exist, but profile exists -> unpublished
+      hasUnpublished = true;
+    } else {
+      // If proofs exist, check if current hash differs from latest anchored hash
+      // If currentArtifactHash is null (old data), fallback to timestamp check
+      if (currentArtifactHash) {
+        hasUnpublished = currentArtifactHash !== latestProof.artifactHash;
+      } else {
+        // Fallback for legacy data without hash
+        hasUnpublished = lastAnalyzed && lastPublished ? lastAnalyzed > lastPublished : false;
+      }
+    }
+
+    res.json({
+      hasProfile: true,
+      hasUnpublished,
+      lastAnalyzed: lastAnalyzed?.toISOString() || null,
+      lastPublished: lastPublished?.toISOString() || null,
+      profile,
+      artifactsCount
+    });
+  } catch (error: any) {
+    console.error("Analysis status error:", error);
+    res.status(500).json({ error: "Failed to get analysis status" });
+  }
+});
+
+// Publish proof to blockchain (requires subscription or first-time user)
+router.post("/publish-proof", async (req, res) => {
+  try {
+    const { username } = req.body;
+
+    if (!username) {
+      return res.status(400).json({ error: "Username required" });
+    }
+
+    // Check if blockchain is configured
+    if (!blockchainService.isConfigured()) {
+      return res.status(503).json({
+        error: "Blockchain not configured",
+        message: "Blockchain publishing is currently unavailable"
+      });
+    }
+
+    // Import subscription service
+    const { subscriptionService } = await import("../services/subscriptionService");
+
+    // Check user's subscription status
+    const subscription = await subscriptionService.getUserPlan(username);
+
+    // Check if user has any existing proofs (first publish is free)
+    const existingProofs = await dbService.getBlockchainProofs(username);
+    const isFirstPublish = existingProofs.length === 0;
+
+    // Allow publishing if:
+    // 1. It's the user's first proof (free first publish)
+    // 2. User has a paid subscription (basic or pro)
+    const hasPaidSubscription = subscription &&
+      (subscription.planType === "basic" || subscription.planType === "pro") &&
+      subscription.status === "active";
+
+    if (!isFirstPublish && !hasPaidSubscription) {
+      return res.status(403).json({
+        error: "Subscription required",
+        message: "Upgrade to publish more proofs on-chain. Your first proof was free!",
+        upgradeRequired: true
+      });
+    }
+
+    // Get user's artifacts and profile for anchoring
+    const artifacts = await dbService.getArtifacts(username);
+    const profile = await dbService.getProfile(username);
+
+    if (!artifacts || artifacts.length === 0) {
+      return res.status(400).json({
+        error: "No artifacts found",
+        message: "Please run an analysis first before publishing"
+      });
+    }
+
+    if (!profile) {
+      return res.status(400).json({
+        error: "No profile found",
+        message: "Please run an analysis first before publishing"
+      });
+    }
+
+    // Anchor to blockchain
+    console.log(`[Publish] Publishing proof for ${username}...`);
+    const proof = await blockchainService.anchorSnapshot(artifacts, profile);
+
+    // Save blockchain proof to database
+    await dbService.saveBlockchainProof(
+      username,
+      proof.transactionHash,
+      proof.artifactHash,
+      proof.blockNumber,
+      proof.timestamp,
+      proof.skillScores
+    );
+
+    console.log(`[Publish] Successfully published proof for ${username}: ${proof.transactionHash}`);
+
+    res.json({
+      success: true,
+      proof: {
+        transactionHash: proof.transactionHash,
+        artifactHash: proof.artifactHash,
+        blockNumber: proof.blockNumber,
+        timestamp: proof.timestamp,
+        skillScores: proof.skillScores
+      },
+      message: isFirstPublish
+        ? "Your first proof has been published for free!"
+        : "Proof published successfully!"
+    });
+  } catch (error: any) {
+    console.error("Publish proof error:", error);
+    res.status(500).json({ error: error.message || "Failed to publish proof" });
+  }
+});
+
+// Public profile endpoint (no auth required)
+router.get("/public/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    // Get verified profile data
+    const profileData = await dbService.getProfileWithMeta(username);
+
+    if (!profileData) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    const { profile, lastAnalyzed } = profileData;
+
+    // Get proofs
+    const proofs = await dbService.getBlockchainProofs(username);
+
+    res.json({
+      username,
+      profile,
+      proofs,
+      isVerified: proofs.length > 0,
+      lastAnalyzed
+    });
+  } catch (error) {
+    console.error("Public profile fetch error:", error);
+    res.status(500).json({ error: "Failed to fetch public profile" });
   }
 });
 

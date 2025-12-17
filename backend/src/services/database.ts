@@ -5,8 +5,8 @@ import { PoWProfile } from "./scoringEngine";
 // Initialize PostgreSQL connection pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("sslmode=require") 
-    ? { rejectUnauthorized: false } 
+  ssl: process.env.DATABASE_URL?.includes("sslmode=require")
+    ? { rejectUnauthorized: false }
     : false,
 });
 
@@ -39,9 +39,20 @@ async function initializeTables() {
         profile_data JSONB,
         artifacts_count INTEGER,
         last_analyzed TIMESTAMP,
+        current_artifact_hash TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+
+      -- Add current_artifact_hash column if it doesn't exist (migration)
+      DO $$
+      BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                         WHERE table_name='profiles' AND column_name='current_artifact_hash') THEN
+              ALTER TABLE profiles ADD COLUMN current_artifact_hash TEXT;
+          END IF;
+      END
+      $$;
 
       CREATE TABLE IF NOT EXISTS blockchain_proofs (
         id SERIAL PRIMARY KEY,
@@ -133,7 +144,7 @@ export class DatabaseService {
     try {
       await client.query("BEGIN");
       await client.query("DELETE FROM artifacts WHERE username = $1", [username]);
-      
+
       for (const artifact of artifacts) {
         await client.query(`
           INSERT INTO artifacts (id, username, type, data, timestamp, repository_owner, repository_name)
@@ -180,16 +191,29 @@ export class DatabaseService {
   }
 
   // Profile management
-  async saveProfile(username: string, profile: PoWProfile, artifactsCount: number) {
-    await pool.query(`
-      INSERT INTO profiles (username, profile_data, artifacts_count, last_analyzed, updated_at)
-      VALUES ($1, $2, $3, NOW(), NOW())
-      ON CONFLICT(username) DO UPDATE SET
-        profile_data = $2,
-        artifacts_count = $3,
-        last_analyzed = NOW(),
-        updated_at = NOW()
-    `, [username, JSON.stringify(profile), artifactsCount]);
+  async saveProfile(username: string, profile: PoWProfile, artifactsCount: number, artifactHash?: string) {
+    if (artifactHash) {
+      await pool.query(`
+        INSERT INTO profiles (username, profile_data, artifacts_count, current_artifact_hash, last_analyzed, updated_at)
+        VALUES ($1, $2, $3, $4, NOW(), NOW())
+        ON CONFLICT(username) DO UPDATE SET
+          profile_data = $2,
+          artifacts_count = $3,
+          current_artifact_hash = $4,
+          last_analyzed = NOW(),
+          updated_at = NOW()
+      `, [username, JSON.stringify(profile), artifactsCount, artifactHash]);
+    } else {
+      await pool.query(`
+        INSERT INTO profiles (username, profile_data, artifacts_count, last_analyzed, updated_at)
+        VALUES ($1, $2, $3, NOW(), NOW())
+        ON CONFLICT(username) DO UPDATE SET
+          profile_data = $2,
+          artifacts_count = $3,
+          last_analyzed = NOW(),
+          updated_at = NOW()
+      `, [username, JSON.stringify(profile), artifactsCount]);
+    }
   }
 
   async getProfile(username: string): Promise<PoWProfile | null> {
@@ -199,6 +223,25 @@ export class DatabaseService {
     );
     if (!result.rows[0]) return null;
     return result.rows[0].profile_data;
+  }
+
+  async getProfileWithMeta(username: string): Promise<{
+    profile: PoWProfile;
+    lastAnalyzed: Date | null;
+    artifactsCount: number;
+    currentArtifactHash: string | null;
+  } | null> {
+    const result = await pool.query(
+      "SELECT profile_data, last_analyzed, artifacts_count, current_artifact_hash FROM profiles WHERE username = $1",
+      [username]
+    );
+    if (!result.rows[0]) return null;
+    return {
+      profile: result.rows[0].profile_data,
+      lastAnalyzed: result.rows[0].last_analyzed ? new Date(result.rows[0].last_analyzed) : null,
+      artifactsCount: result.rows[0].artifacts_count || 0,
+      currentArtifactHash: result.rows[0].current_artifact_hash || null
+    };
   }
 
   async shouldRefreshProfile(username: string, maxAgeHours: number = 24): Promise<boolean> {
@@ -368,7 +411,7 @@ export class DatabaseService {
   async getScheduledUpdates(beforeDate?: Date): Promise<any[]> {
     let query = "SELECT * FROM update_schedule WHERE status = 'pending'";
     const params: any[] = [];
-    
+
     if (beforeDate) {
       query += " AND scheduled_date <= $1";
       params.push(beforeDate);

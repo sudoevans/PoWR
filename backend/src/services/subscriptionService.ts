@@ -1,4 +1,5 @@
 import { dbService } from "./database";
+import { currencyService } from "./currencyService";
 import { ethers } from "ethers";
 
 export type PlanType = "free" | "basic" | "pro";
@@ -56,8 +57,19 @@ export class SubscriptionService {
     },
   };
 
-  getAvailablePlans(): SubscriptionPlan[] {
-    return Object.values(SubscriptionService.PLANS);
+  async getAvailablePlans(): Promise<SubscriptionPlan[]> {
+    const plans = Object.values(SubscriptionService.PLANS);
+
+    return await Promise.all(plans.map(async (plan) => {
+      // Clone to avoid mutating static
+      const p = { ...plan, priceInCrypto: { ...plan.priceInCrypto } };
+
+      if (p.price > 0) {
+        // Calculate dynamic ETH price
+        p.priceInCrypto.eth = await currencyService.convertUsdToEth(p.price);
+      }
+      return p;
+    }));
   }
 
   getPlan(planType: PlanType): SubscriptionPlan {
@@ -144,7 +156,7 @@ export class SubscriptionService {
       const provider = new ethers.JsonRpcProvider(rpcUrl);
 
       const tx = await provider.getTransaction(txHash);
-      
+
       if (!tx || !tx.blockNumber) {
         return false;
       }
@@ -170,7 +182,7 @@ export class SubscriptionService {
 
   async canUserUpdate(username: string): Promise<{ allowed: boolean; reason?: string }> {
     const subscription = await this.getUserPlan(username);
-    
+
     // No subscription = first time user, always allow
     if (!subscription) {
       return { allowed: true };

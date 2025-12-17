@@ -26,18 +26,45 @@ export interface BlockchainProof {
 }
 
 export class BlockchainService {
-  private provider: ethers.JsonRpcProvider;
+  private provider: ethers.JsonRpcProvider | null = null;
   private signer: ethers.Wallet | null = null;
   private contract: ethers.Contract | null = null;
+  private initialized: boolean = false;
 
   constructor() {
+    // Lazy initialization - don't initialize here since dotenv may not have loaded yet
+  }
+
+  /**
+   * Lazy initialization - ensures provider, signer, and contract are initialized
+   * This is called on first use, after dotenv.config() has run
+   */
+  private ensureInitialized(): void {
+    if (this.initialized) return;
+
+    this.initialized = true;
     this.provider = new ethers.JsonRpcProvider(RPC_URL);
-    
+
     // Initialize signer if private key is available
-    const privateKey = process.env.BLOCKCHAIN_PRIVATE_KEY;
+    let privateKey = process.env.BLOCKCHAIN_PRIVATE_KEY;
+
     if (privateKey) {
-      this.signer = new ethers.Wallet(privateKey, this.provider);
-      this.contract = new ethers.Contract(CONTRACT_ADDRESS, POW_REGISTRY_ABI, this.signer);
+      // Ensure private key has 0x prefix
+      if (!privateKey.startsWith('0x')) {
+        privateKey = '0x' + privateKey;
+      }
+
+      try {
+        this.signer = new ethers.Wallet(privateKey, this.provider);
+        this.contract = new ethers.Contract(CONTRACT_ADDRESS, POW_REGISTRY_ABI, this.signer);
+        console.log(`[Blockchain] Initialized with wallet: ${this.signer.address}`);
+      } catch (error: any) {
+        console.error(`[Blockchain] Failed to initialize wallet:`, error.message);
+        this.signer = null;
+        this.contract = null;
+      }
+    } else {
+      console.warn('[Blockchain] BLOCKCHAIN_PRIVATE_KEY not set - blockchain features disabled');
     }
   }
 
@@ -60,7 +87,7 @@ export class BlockchainService {
     // Create hash using keccak256 (ethers utility)
     const dataString = JSON.stringify(artifactData);
     const hash = ethers.keccak256(ethers.toUtf8Bytes(dataString));
-    
+
     return hash;
   }
 
@@ -83,40 +110,50 @@ export class BlockchainService {
     profile: PoWProfile,
     userAddress?: string
   ): Promise<BlockchainProof> {
-    if (!this.contract || !this.signer) {
+    console.log('[Blockchain] anchorSnapshot called with', artifacts.length, 'artifacts');
+    this.ensureInitialized();
+
+    if (!this.contract || !this.signer || !this.provider) {
       throw new Error("Blockchain service not configured. Set BLOCKCHAIN_PRIVATE_KEY in .env");
     }
 
     // Generate artifact hash
     const artifactHash = this.generateArtifactHash(artifacts);
+    console.log('[Blockchain] Generated artifact hash:', artifactHash.substring(0, 20) + '...');
 
     // Extract skill scores
     const skillScores = this.extractSkillScores(profile);
+    console.log('[Blockchain] Skill scores:', skillScores);
     const skillScoresBigInt = skillScores.map((score) => BigInt(score));
 
     // Use zero address if no user address provided
-    const githubIdentity = userAddress 
+    const githubIdentity = userAddress
       ? ethers.getAddress(userAddress)
       : ethers.ZeroAddress;
 
     try {
+      console.log('[Blockchain] Sending transaction to contract...');
       // Call the contract
       const tx = await this.contract.anchorSnapshot(
         artifactHash,
         skillScoresBigInt,
         githubIdentity
       );
+      console.log('[Blockchain] Transaction sent! Hash:', tx.hash);
 
       // Wait for transaction confirmation
+      console.log('[Blockchain] Waiting for confirmation...');
       const receipt = await tx.wait();
-      
+
       if (!receipt) {
         throw new Error("Transaction receipt not found");
       }
 
+      console.log('[Blockchain] ✅ Transaction confirmed in block:', receipt.blockNumber);
+
       // Get block to get timestamp
-      const block = await this.provider.getBlock(receipt.blockNumber);
-      
+      const block = await this.provider!.getBlock(receipt.blockNumber);
+
       return {
         transactionHash: receipt.hash,
         artifactHash: artifactHash,
@@ -125,7 +162,8 @@ export class BlockchainService {
         skillScores,
       };
     } catch (error: any) {
-      console.error("Blockchain anchoring error:", error);
+      console.error("[Blockchain] ❌ Anchoring error:", error.message);
+      if (error.code) console.error("[Blockchain] Error code:", error.code);
       throw new Error(`Failed to anchor snapshot: ${error.message}`);
     }
   }
@@ -134,11 +172,16 @@ export class BlockchainService {
    * Get snapshot from blockchain for a user address
    */
   async getSnapshot(userAddress: string): Promise<any> {
-    if (!this.contract) {
+    this.ensureInitialized();
+
+    if (!this.contract && this.provider) {
       this.contract = new ethers.Contract(CONTRACT_ADDRESS, POW_REGISTRY_ABI, this.provider);
     }
 
     try {
+      if (!this.contract) {
+        throw new Error("Contract not initialized");
+      }
       const snapshot = await this.contract.getSnapshot(userAddress);
       return {
         artifactHash: snapshot.artifactHash,
@@ -157,11 +200,16 @@ export class BlockchainService {
    * Verify if a hash has been anchored on-chain
    */
   async verifySnapshot(hash: string): Promise<boolean> {
-    if (!this.contract) {
+    this.ensureInitialized();
+
+    if (!this.contract && this.provider) {
       this.contract = new ethers.Contract(CONTRACT_ADDRESS, POW_REGISTRY_ABI, this.provider);
     }
 
     try {
+      if (!this.contract) {
+        throw new Error("Contract not initialized");
+      }
       return await this.contract.verifySnapshot(hash);
     } catch (error: any) {
       console.error("Error verifying snapshot:", error);
@@ -173,7 +221,8 @@ export class BlockchainService {
    * Check if blockchain service is configured
    */
   isConfigured(): boolean {
-    return !!process.env.BLOCKCHAIN_PRIVATE_KEY && !!this.signer;
+    this.ensureInitialized();
+    return !!this.signer && !!this.contract;
   }
 }
 

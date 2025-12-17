@@ -7,7 +7,7 @@ const router = express.Router();
 // Get available plans
 router.get("/plans", async (req, res) => {
   try {
-    const plans = subscriptionService.getAvailablePlans();
+    const plans = await subscriptionService.getAvailablePlans();
     res.json({ plans });
   } catch (error: any) {
     console.error("Get plans error:", error);
@@ -122,3 +122,4 @@ router.get("/next-update", async (req, res) => {
 });
 
 export default router;
+

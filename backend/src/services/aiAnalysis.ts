@@ -156,7 +156,7 @@ export class AIAnalysisService {
     // Calculate scores based on language presence
     let backendScore = 0, frontendScore = 0, devopsScore = 0, systemsScore = 0;
     let totalBytes = 0;
-    
+
     for (const [lang, bytes] of languages) {
       totalBytes += bytes;
       if (backendLangs.includes(lang)) backendScore += bytes;
@@ -182,13 +182,13 @@ export class AIAnalysisService {
         const repo = artifact.data as any;
         const name = (repo.name || "").toLowerCase();
         const desc = (repo.description || "").toLowerCase();
-        
+
         // Boost scores based on repo names/descriptions
         if (name.includes("api") || name.includes("backend") || name.includes("server")) backendScore += 500;
         if (name.includes("frontend") || name.includes("ui") || name.includes("web")) frontendScore += 500;
         if (name.includes("deploy") || name.includes("docker") || name.includes("k8s") || name.includes("terraform")) devopsScore += 500;
         if (name.includes("system") || name.includes("kernel") || name.includes("driver")) systemsScore += 500;
-        
+
         if (desc.includes("api") || desc.includes("rest") || desc.includes("graphql")) backendScore += 300;
         if (desc.includes("react") || desc.includes("vue") || desc.includes("angular")) frontendScore += 300;
         if (desc.includes("ci/cd") || desc.includes("pipeline") || desc.includes("infrastructure")) devopsScore += 300;
@@ -225,7 +225,7 @@ export class AIAnalysisService {
 
   async analyzeContributionImpact(artifact: Artifact): Promise<ContributionImpact> {
     const prompt = this.buildImpactAnalysisPrompt(artifact);
-    
+
     try {
       const response = await this.callAI(prompt);
       return this.parseImpactAnalysis(response);
@@ -308,7 +308,7 @@ ${artifactsSummary}`;
       const response = await this.callAI(prompt);
       const cleanedResponse = this.extractJSON(response);
       const results = JSON.parse(cleanedResponse);
-      
+
       const impactMap = new Map<string, ContributionImpact>();
       artifacts.forEach((artifact, index) => {
         const result = Array.isArray(results) ? results[index] : results;
@@ -324,7 +324,7 @@ ${artifactsSummary}`;
         };
         impactMap.set(artifact.id, impact);
       });
-      
+
       return impactMap;
     } catch (error) {
       console.error("Batch impact analysis error:", error);
@@ -351,53 +351,53 @@ ${artifactsSummary}`;
    */
   private heuristicImpactBatch(artifacts: Artifact[]): Map<string, ContributionImpact> {
     const impactMap = new Map<string, ContributionImpact>();
-    
+
     for (const artifact of artifacts) {
       let impact_score = 50;
       let complexity_delta = 50;
       let has_tests = false;
       let documented = false;
-      
+
       if (artifact.type === "pull_request") {
         const pr = artifact.data as any;
         // Score based on PR size and merge status
         const additions = pr.additions || 0;
         const deletions = pr.deletions || 0;
         const totalChanges = additions + deletions;
-        
+
         // More changes = higher impact (with diminishing returns)
         impact_score = Math.min(90, 30 + Math.sqrt(totalChanges) * 3);
         complexity_delta = Math.min(85, 25 + Math.sqrt(totalChanges) * 2);
-        
+
         // Merged PRs are more impactful
         if (pr.merged) {
           impact_score = Math.min(100, impact_score * 1.2);
         }
-        
+
         // Check title/body for test mentions
         const text = `${pr.title || ""} ${pr.body || ""}`.toLowerCase();
         has_tests = text.includes("test") || text.includes("spec");
         documented = text.includes("doc") || text.includes("readme") || (pr.body || "").length > 200;
-        
+
       } else if (artifact.type === "commit") {
         const commit = artifact.data as any;
         const message = commit.commit?.message || "";
         const stats = commit.stats || {};
-        
+
         const totalChanges = (stats.additions || 0) + (stats.deletions || 0);
         impact_score = Math.min(80, 30 + Math.sqrt(totalChanges) * 2);
         complexity_delta = Math.min(75, 20 + Math.sqrt(totalChanges) * 1.5);
-        
+
         // Check commit message for patterns
         const msgLower = message.toLowerCase();
         has_tests = msgLower.includes("test") || msgLower.includes("spec");
         documented = msgLower.includes("doc") || msgLower.includes("readme");
-        
+
         // Refactoring and fix commits are valuable
         if (msgLower.includes("refactor")) complexity_delta = Math.min(90, complexity_delta * 1.3);
         if (msgLower.includes("fix") || msgLower.includes("bug")) impact_score = Math.min(85, impact_score * 1.1);
       }
-      
+
       impactMap.set(artifact.id, {
         impact_score: Math.round(impact_score),
         complexity_delta: Math.round(complexity_delta),
@@ -409,7 +409,7 @@ ${artifactsSummary}`;
         },
       });
     }
-    
+
     return impactMap;
   }
 
@@ -419,23 +419,23 @@ ${artifactsSummary}`;
   private extractJSON(response: string): string {
     // Remove markdown code blocks if present
     let cleaned = response.trim();
-    
+
     // Remove ```json or ``` at start
     if (cleaned.startsWith('```json')) {
       cleaned = cleaned.substring(7).trim();
     } else if (cleaned.startsWith('```')) {
       cleaned = cleaned.substring(3).trim();
     }
-    
+
     // Remove ``` at end
     if (cleaned.endsWith('```')) {
       cleaned = cleaned.substring(0, cleaned.length - 3).trim();
     }
-    
+
     // Find JSON array or object boundaries
     const jsonStart = cleaned.indexOf('[');
     const jsonObjectStart = cleaned.indexOf('{');
-    
+
     if (jsonStart !== -1) {
       // Find matching closing bracket
       let depth = 0;
@@ -463,7 +463,7 @@ ${artifactsSummary}`;
       }
       cleaned = cleaned.substring(jsonObjectStart, jsonEnd);
     }
-    
+
     return cleaned.trim();
   }
 
@@ -585,7 +585,7 @@ Return JSON format with keys: backend_engineering, frontend_engineering, devops_
 
   private buildImpactAnalysisPrompt(artifact: Artifact): string {
     let details = "";
-    
+
     if (artifact.type === "pull_request") {
       const pr = artifact.data as any;
       details = `Type: Pull Request
@@ -610,7 +610,7 @@ Description: ${repo.description || "N/A"}
 Is Fork: ${repo.fork || false}
 Owner: ${repo.owner?.login || "N/A"}`;
     }
-    
+
     return `Analyze this contribution's impact and complexity:
 
 ${details}
@@ -644,7 +644,7 @@ Return JSON format.`;
     try {
       const cleanedResponse = this.extractJSON(response);
       const parsed = JSON.parse(cleanedResponse);
-      
+
       // Validate and ensure structure matches ContributionImpact interface
       return {
         impact_score: typeof parsed.impact_score === 'number' ? parsed.impact_score : 50,
@@ -678,6 +678,38 @@ Return JSON format.`;
       devops_infrastructure: { score: 0, confidence: 0, evidence: [] },
       systems_architecture: { score: 0, confidence: 0, evidence: [] },
     };
+  }
+  async generateProfileSummary(
+    username: string,
+    // We can use the pre-calculated skill extraction or raw artifacts
+    skills: SkillExtraction
+  ): Promise<string> {
+    const prompt = `Based on the following skill analysis for developer ${username}, write a professional 2-3 sentence profile summary.
+The summary should highlight their primary strengths (e.g., "Senior Backend Engineer with strong DevOps focus") and mention key technologies if evident.
+Keep it professional, concise, and suitable for a verified reputation profile.
+
+Skill Analysis:
+Backend: ${skills.backend_engineering.score}/100 (Confidence: ${skills.backend_engineering.confidence})
+Frontend: ${skills.frontend_engineering.score}/100 (Confidence: ${skills.frontend_engineering.confidence})
+DevOps: ${skills.devops_infrastructure.score}/100 (Confidence: ${skills.devops_infrastructure.confidence})
+Systems: ${skills.systems_architecture.score}/100 (Confidence: ${skills.systems_architecture.confidence})
+
+Respond with ONLY the summary text.`;
+
+    try {
+      // If no API key, return a template summary
+      if (!this.hasApiKey()) {
+        const topSkill = Object.entries(skills).sort((a, b) => b[1].score - a[1].score)[0];
+        const role = topSkill[0].split('_')[0].charAt(0).toUpperCase() + topSkill[0].split('_')[0].slice(1);
+        return `${role} developer with verified contributions in ${topSkill[0].replace('_', ' ')}. Demonstrated activity across ${username}'s repositories suggests a focus on ${role} technologies.`;
+      }
+
+      const response = await this.callAI(prompt);
+      return response.trim().replace(/^"|"$/g, ''); // Remove quotes if present
+    } catch (error) {
+      console.error("Summary generation failed:", error);
+      return `Developer verified by PoWR.`;
+    }
   }
 }
 
