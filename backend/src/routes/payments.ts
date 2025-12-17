@@ -18,7 +18,7 @@ router.post("/create", async (req, res) => {
       return res.status(400).json({ error: "Invalid plan type" });
     }
 
-    const paymentIntent = paymentService.createPaymentIntent(
+    const paymentIntent = await paymentService.createPaymentIntent(
       planType as PlanType,
       currency || "eth"
     );
@@ -43,7 +43,8 @@ router.post("/verify", async (req, res) => {
     const result = await paymentService.processPayment(
       username as string,
       txHash,
-      planType as PlanType
+      planType as PlanType,
+      req.body.network // Optional network param
     );
 
     if (result.success) {
@@ -70,4 +71,5 @@ router.get("/status/:txHash", async (req, res) => {
 });
 
 export default router;
+
 

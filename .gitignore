@@ -47,3 +47,8 @@ data/
 *.db-wal
 
 
+
+
+# AI Logs (contain sensitive info)
+ai_logs/droid_factory_ai/
+ai_logs/sensitive/

@@ -3,17 +3,18 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { 
+import {
   SquaresFour,
-  Briefcase, 
-  FileText, 
-  ChatCircle, 
+  Briefcase,
+  FileText,
+  ChatCircle,
   Bell,
   ArrowSquareOut,
   SignOut,
   Star,
   User,
-  CaretUp
+  CaretUp,
+  ShieldCheck
 } from "phosphor-react";
 import { PricingModal } from "../subscription/PricingModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
@@ -26,11 +27,11 @@ interface SidebarProps {
   avatarUrl?: string;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ 
-  username, 
-  email, 
+export const Sidebar: React.FC<SidebarProps> = ({
+  username,
+  email,
   displayName,
-  avatarUrl 
+  avatarUrl
 }) => {
   const pathname = usePathname();
   const router = useRouter();
@@ -104,10 +105,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     localStorage.removeItem("github_token_timestamp");
     localStorage.removeItem("github_avatar_url");
     localStorage.removeItem("github_email");
-    
+
     // Show success toast
     toast.success("Logged out successfully");
-    
+
     // Redirect to auth page
     router.push("/auth");
   };
@@ -116,6 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = [
     { icon: SquaresFour, label: "Dashboard", href: "/dashboard" },
+    { icon: ShieldCheck, label: "On-Chain Proofs", href: "/proofs" },
     { icon: Briefcase, label: "Jobs", href: "/jobs" },
     { icon: FileText, label: "Gigs", href: "/gigs" },
     { icon: Star, label: "Saved", href: "/saved" },
@@ -132,9 +134,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Logo */}
       <div className="p-6 border-b border-[rgba(255,255,255,0.04)] flex-shrink-0">
         <Link href="/dashboard" className="flex items-center gap-2.5">
-          <img 
-            src="/logo.png" 
-            alt="PoWR Logo" 
+          <img
+            src="/logo.png"
+            alt="PoWR Logo"
             className="h-9 w-auto"
           />
           <span className="text-lg font-semibold text-white tracking-tight">PoWR</span>
@@ -150,11 +152,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                active
-                  ? "bg-[#12141a] text-white"
-                  : "text-gray-400 hover:text-white hover:bg-[#12141a]"
-              }`}
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${active
+                ? "bg-[#12141a] text-white"
+                : "text-gray-400 hover:text-white hover:bg-[#12141a]"
+                }`}
             >
               <Icon className="w-5 h-5" weight="regular" />
               <span className="text-sm font-medium">{item.label}</span>
@@ -190,7 +191,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               </div>
             )}
-            
+
             {/* Profile Button */}
             <button
               onClick={() => setShowProfileMenu(!showProfileMenu)}
@@ -198,9 +199,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <div className="w-10 h-10 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center flex-shrink-0 overflow-hidden border border-[rgba(255,255,255,0.08)]">
                 {displayAvatar ? (
-                  <img 
-                    src={displayAvatar} 
-                    alt={displayName || username} 
+                  <img
+                    src={displayAvatar}
+                    alt={displayName || username}
                     className="w-full h-full rounded-full object-cover"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
@@ -230,7 +231,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
         )}
-        <button 
+        <button
           onClick={() => setShowPricingModal(true)}
           className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-[#12141a] hover:bg-[#161922] text-white text-sm font-medium transition-colors border border-[rgba(255,255,255,0.04)]"
         >

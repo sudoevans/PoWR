@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-**PoWR** is a proof‑of‑work–based reputation and hiring signal platform that replaces resumes and interviews with **verifiable, artifact‑backed evidence of real work**. It analyzes a developer’s GitHub activity, extracts skill‑level proof using AI, anchors credibility snapshots on‑chain, and exposes a hiring‑ready dashboard for both builders and recruiters.
+  **PoWR** is a proof‑of‑work–based reputation and hiring signal platform that replaces resumes and interviews with **verifiable, artifact‑backed evidence of real work**. It analyzes a developer’s GitHub activity, extracts skill‑level proof using AI, anchors credibility snapshots on‑chain, and exposes a hiring‑ready dashboard for both builders and recruiters.
 
 Core principle:
 > *Participation can be faked. Proof of work cannot.*

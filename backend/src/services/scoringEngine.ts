@@ -18,6 +18,7 @@ export interface PoWProfile {
     pullRequests: number;
     mergedPRs: number;
   };
+  summary?: string;
 }
 
 export class ScoringEngine {
@@ -52,7 +53,7 @@ export class ScoringEngine {
 
     for (const category of skillCategories) {
       const aiScore = safeExtraction[category.key as keyof SkillExtraction] || { score: 0, confidence: 0, evidence: [] };
-      
+
       const powScore = await this.calculateSkillPoW(
         category.key,
         artifacts,
@@ -139,11 +140,11 @@ export class ScoringEngine {
 
     for (const artifact of relevantArtifacts) {
       const impact = impactMap.get(artifact.id);
-      
+
       if (!impact || typeof impact.complexity_delta !== 'number') {
         continue;
       }
-      
+
       totalComplexity += impact.complexity_delta;
       count++;
 
@@ -187,7 +188,7 @@ export class ScoringEngine {
     if (artifacts.length === 0) return Promise.resolve(0);
 
     const monthlyActivity: { [key: string]: number } = {};
-    
+
     artifacts.forEach((artifact) => {
       const date = new Date(artifact.timestamp);
       const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
@@ -244,7 +245,7 @@ export class ScoringEngine {
     aiExtraction: SkillExtraction
   ): Promise<PoWProfile> {
     const validatedArtifacts = this.validateArtifactOwnership(artifacts);
-    
+
     const relevantArtifacts = validatedArtifacts.filter(a => a.type === "pull_request" || a.type === "commit");
     if (relevantArtifacts.length > 0) {
       this.impactCache = await this.aiService.analyzeContributionImpactBatch(relevantArtifacts);
@@ -253,7 +254,7 @@ export class ScoringEngine {
     }
 
     const skillScores = await this.calculatePoWScores(validatedArtifacts, aiExtraction);
-    
+
     this.impactCache = null;
 
     const overallIndex = skillScores.reduce((sum, skill) => sum + skill.score, 0) / skillScores.length;
@@ -279,27 +280,27 @@ export class ScoringEngine {
 
   private validateArtifactOwnership(artifacts: Artifact[]): Artifact[] {
     console.log(`validateArtifactOwnership: Processing ${artifacts.length} artifacts`);
-    
+
     // For fast ingestion mode, we only have repos - include all non-fork repos
     // The filtering was too aggressive and removing everything
     const validated: Artifact[] = [];
-    
+
     artifacts.forEach((artifact) => {
       if (artifact.type === "repo") {
         const repo = artifact.data as any;
-        
+
         // Skip forks (user didn't create them)
         if (repo.fork) {
           console.log(`Skipping fork: ${repo.full_name}`);
           return;
         }
-        
+
         // Include all owned repos (not forks)
         console.log(`Including repo: ${repo.full_name}, language: ${repo.language}, languages_breakdown: ${JSON.stringify(repo.languages_breakdown || {})}`);
         validated.push(artifact);
         return;
       }
-      
+
       // Include all commits and PRs
       validated.push(artifact);
     });

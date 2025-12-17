@@ -1,4 +1,5 @@
 import { dbService } from "./database";
+import { currencyService } from "./currencyService";
 import { subscriptionService, PlanType } from "./subscriptionService";
 import { ethers } from "ethers";
 
@@ -19,14 +20,20 @@ export class PaymentService {
     return address;
   }
 
-  createPaymentIntent(planType: PlanType, currency: "eth" | "usdc" = "eth"): PaymentIntent {
+  async createPaymentIntent(planType: PlanType, currency: "eth" | "usdc" = "eth"): Promise<PaymentIntent> {
     const plan = subscriptionService.getPlan(planType);
-    
+
     if (planType === "free") {
       throw new Error("Free plan does not require payment");
     }
 
-    const amount = plan.priceInCrypto[currency];
+    let amount: string;
+    if (currency === "eth") {
+      amount = await currencyService.convertUsdToEth(plan.price);
+    } else {
+      amount = plan.price.toString();
+    }
+
     const address = this.getPaymentAddress();
 
     return {
@@ -38,14 +45,19 @@ export class PaymentService {
     };
   }
 
-  async verifyPayment(txHash: string): Promise<{
+  async verifyPayment(txHash: string, network: "base-sepolia" | "sepolia" = "base-sepolia"): Promise<{
     verified: boolean;
     amount?: string;
     currency?: string;
     blockNumber?: number;
   }> {
     try {
-      const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org";
+      // Determine RPC URL based on network
+      let rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org";
+      if (network === "sepolia") {
+        rpcUrl = process.env.SEPOLIA_RPC_URL || "https://rpc.sepolia.org";
+      }
+
       const provider = new ethers.JsonRpcProvider(rpcUrl);
 
       const tx = await provider.getTransaction(txHash);
@@ -62,6 +74,7 @@ export class PaymentService {
 
       const paymentAddress = this.getPaymentAddress().toLowerCase();
       if (tx.to?.toLowerCase() !== paymentAddress) {
+        console.error(`Payment address mismatch: expected ${paymentAddress}, got ${tx.to}`);
         return { verified: false };
       }
 
@@ -80,10 +93,11 @@ export class PaymentService {
   async processPayment(
     username: string,
     txHash: string,
-    planType: PlanType
+    planType: PlanType,
+    network: "base-sepolia" | "sepolia" = "base-sepolia"
   ): Promise<{ success: boolean; message?: string }> {
     try {
-      const verification = await this.verifyPayment(txHash);
+      const verification = await this.verifyPayment(txHash, network);
       if (!verification.verified) {
         return { success: false, message: "Payment verification failed" };
       }
@@ -136,3 +150,4 @@ export class PaymentService {
 }
 
 export const paymentService = new PaymentService();
+
