@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "../../components/ui";
-import { 
-  ArrowLeft, 
-  House, 
+import {
+  ArrowLeft,
+  House,
   User,
   GithubLogo,
   ShieldCheck,
@@ -17,7 +17,9 @@ import {
   GitBranch,
   Copy,
   Check,
-  ShareNetwork
+  ShareNetwork,
+  Quotes,
+  Sparkle
 } from "phosphor-react";
 import { apiClient, PoWProfile, Artifact, Proof } from "../../lib/api";
 import toast from "react-hot-toast";
@@ -26,16 +28,15 @@ const PercentileBadge = ({ percentile, score }: { percentile: number; score: num
   const topPercent = 100 - percentile;
   const isTop = topPercent <= 25;
   const isMid = topPercent > 25 && topPercent <= 50;
-  
+
   return (
-    <span 
-      className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${
-        isTop 
-          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
-          : isMid 
-            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-            : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
-      }`}
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${isTop
+        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+        : isMid
+          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+          : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+        }`}
     >
       <TrendUp className="w-3 h-3" weight="bold" />
       Top {topPercent}%
@@ -54,12 +55,13 @@ export default function PublicProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [lastAnalyzed, setLastAnalyzed] = useState<string | null>(null);
 
   useEffect(() => {
     // Check if user is logged in
     const token = localStorage.getItem("github_token");
     setIsLoggedIn(!!token);
-    
+
     loadProfile();
     // Fetch GitHub avatar
     fetch(`https://api.github.com/users/${username}`)
@@ -67,55 +69,19 @@ export default function PublicProfilePage() {
       .then(data => {
         if (data.avatar_url) setAvatarUrl(data.avatar_url);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [username]);
 
   const loadProfile = async () => {
     try {
       setLoading(true);
-      setProfile({
-        skills: [
-          {
-            skill: "Backend Engineering",
-            score: 82,
-            percentile: 12,
-            confidence: 90,
-            artifactCount: 45,
-          },
-          {
-            skill: "Frontend Engineering",
-            score: 65,
-            percentile: 35,
-            confidence: 75,
-            artifactCount: 32,
-          },
-          {
-            skill: "DevOps / Infrastructure",
-            score: 45,
-            percentile: 55,
-            confidence: 60,
-            artifactCount: 12,
-          },
-          {
-            skill: "Systems / Architecture",
-            score: 70,
-            percentile: 30,
-            confidence: 80,
-            artifactCount: 28,
-          },
-        ],
-        overallIndex: 65,
-        artifactSummary: {
-          repos: 15,
-          commits: 234,
-          pullRequests: 42,
-          mergedPRs: 38,
-        },
-      });
-      setArtifacts([]);
-      setProofs([]);
+      const data = await apiClient.getPublicProfile(username);
+      setProfile(data.profile);
+      setProofs(data.proofs);
+      setLastAnalyzed(data.lastAnalyzed);
     } catch (error) {
       console.error("Failed to load profile:", error);
+      setProfile(null);
     } finally {
       setLoading(false);
     }
@@ -181,7 +147,7 @@ export default function PublicProfilePage() {
           <h2 className="text-lg font-medium text-white mb-2">Profile not found</h2>
           <p className="text-gray-400 text-sm mb-6">The user @{username} doesn't have a public profile yet.</p>
           {isLoggedIn && (
-            <Link 
+            <Link
               href="/dashboard"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/20 text-blue-400 text-sm hover:bg-blue-500/30 transition-colors"
             >
@@ -200,7 +166,7 @@ export default function PublicProfilePage() {
       <div className="sticky top-0 z-50 bg-[#0b0c0f]/80 backdrop-blur-md border-b border-[rgba(255,255,255,0.04)]">
         <div className="max-w-[1000px] mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button 
+            <button
               onClick={() => router.back()}
               className="p-2 rounded-lg hover:bg-[rgba(255,255,255,0.05)] text-gray-400 hover:text-white transition-colors"
             >
@@ -212,7 +178,7 @@ export default function PublicProfilePage() {
           </div>
           <div className="flex items-center gap-2">
             {isLoggedIn && (
-              <Link 
+              <Link
                 href="/dashboard"
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.06)] text-gray-300 text-sm transition-colors border border-[rgba(255,255,255,0.04)]"
               >
@@ -220,7 +186,7 @@ export default function PublicProfilePage() {
                 Dashboard
               </Link>
             )}
-            <a 
+            <a
               href={`https://github.com/${username}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -246,7 +212,14 @@ export default function PublicProfilePage() {
             </div>
             <div className="flex-1">
               <h1 className="text-2xl font-semibold text-white mb-1">{username}</h1>
-              <p className="text-sm text-gray-400 mb-3">Public Proof-of-Work Profile</p>
+              <p className="text-sm text-gray-400 mb-3 flex items-center gap-2">
+                Public Proof-of-Work Profile
+                {lastAnalyzed && (
+                  <span className="text-xs text-gray-600 bg-gray-800/50 px-2 py-0.5 rounded-full">
+                    Updated {new Date(lastAnalyzed).toLocaleDateString()}
+                  </span>
+                )}
+              </p>
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
                   <ShieldCheck className="w-3.5 h-3.5" weight="fill" />
@@ -275,6 +248,22 @@ export default function PublicProfilePage() {
           </div>
         </Card>
 
+        {/* Profile Summary */}
+        {profile.summary && (
+          <Card className="p-6 rounded-[16px] mb-6 relative overflow-hidden border border-blue-500/20 bg-blue-500/5">
+            <div className="absolute top-4 right-4 opacity-20">
+              <Quotes className="w-12 h-12 text-blue-400" weight="fill" />
+            </div>
+            <h3 className="text-sm font-medium text-blue-400 mb-3 flex items-center gap-2">
+              <Sparkle className="w-4 h-4" weight="fill" />
+              AI Profile Summary
+            </h3>
+            <p className="text-gray-300 leading-relaxed text-sm relative z-10 font-light tracking-wide">
+              {profile.summary}
+            </p>
+          </Card>
+        )}
+
         {/* Stats Row */}
         <div className="grid grid-cols-4 gap-4 mb-6">
           {[
@@ -302,20 +291,20 @@ export default function PublicProfilePage() {
             </div>
           </div>
           <p className="text-[10px] text-gray-500 mb-4">Ranked against other developers based on verified work artifacts</p>
-          
+
           <div className="grid grid-cols-2 gap-4">
             {profile.skills.map((skill, index) => {
               const colors = getSkillColor(index);
               const percentile = 100 - skill.percentile;
               const accentColor = colors.bar.includes('blue') ? '#3b82f6' : colors.bar.includes('emerald') ? '#10b981' : colors.bar.includes('violet') ? '#8b5cf6' : '#f59e0b';
-              
+
               // Generate bell curve points
               const generateBellCurve = () => {
                 const points = [];
                 const width = 200;
                 const height = 80;
                 const numPoints = 50;
-                
+
                 for (let i = 0; i <= numPoints; i++) {
                   const x = (i / numPoints) * width;
                   const normalized = (i - numPoints / 2) / (numPoints / 6);
@@ -324,13 +313,13 @@ export default function PublicProfilePage() {
                 }
                 return points;
               };
-              
+
               const bellCurvePoints = generateBellCurve();
               const pathData = `M ${bellCurvePoints.map(p => `${p.x},${p.y}`).join(' ')} L 200,80 L 0,80 Z`;
               const lineData = `M ${bellCurvePoints.map(p => `${p.x},${p.y}`).join(' ')}`;
               const markerIndex = Math.floor((percentile / 100) * (bellCurvePoints.length - 1));
               const markerPoint = bellCurvePoints[markerIndex];
-              
+
               return (
                 <Card key={skill.skill} className="p-4 rounded-[14px]">
                   {/* Header */}
@@ -338,7 +327,7 @@ export default function PublicProfilePage() {
                     <span className={`text-xs font-medium ${colors.text}`}>{skill.skill}</span>
                     <PercentileBadge percentile={skill.percentile} score={skill.score} />
                   </div>
-                  
+
                   {/* Bell Curve Chart */}
                   <div className="bg-[rgba(0,0,0,0.3)] rounded-lg p-2 mb-3">
                     <svg viewBox="0 0 200 90" className="w-full h-auto">
@@ -348,31 +337,31 @@ export default function PublicProfilePage() {
                           <stop offset="100%" stopColor={accentColor} stopOpacity="0" />
                         </linearGradient>
                       </defs>
-                      
+
                       {/* Grid lines */}
                       <line x1="50" y1="10" x2="50" y2="80" stroke="#222" strokeWidth="0.5" opacity="0.4" />
                       <line x1="100" y1="10" x2="100" y2="80" stroke="#222" strokeWidth="0.5" opacity="0.4" />
                       <line x1="150" y1="10" x2="150" y2="80" stroke="#222" strokeWidth="0.5" opacity="0.4" />
-                      
+
                       {/* Bell curve area */}
                       <path d={pathData} fill={`url(#bellGrad-pub-${index})`} opacity="0.6" />
-                      
+
                       {/* Bell curve line */}
                       <path d={lineData} fill="none" stroke={accentColor} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" opacity="0.8" />
-                      
+
                       {/* Marker dot on curve */}
                       <circle cx={markerPoint.x} cy={markerPoint.y} r="4" fill={accentColor} stroke="#0b0c0f" strokeWidth="1.5" />
-                      
+
                       {/* X-axis */}
                       <line x1="0" y1="80" x2="200" y2="80" stroke="#333" strokeWidth="0.5" />
-                      
+
                       {/* X-axis labels */}
                       <text x="50" y="88" textAnchor="middle" fill="#555" fontSize="8">0</text>
                       <text x="100" y="88" textAnchor="middle" fill="#555" fontSize="8">50</text>
                       <text x="150" y="88" textAnchor="middle" fill="#555" fontSize="8">100</text>
                     </svg>
                   </div>
-                  
+
                   {/* Stats */}
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="text-gray-400">Beats {percentile}% of devs</span>
@@ -390,7 +379,7 @@ export default function PublicProfilePage() {
             <ShieldCheck className="w-4 h-4 text-violet-400" weight="fill" />
             <h2 className="text-sm font-medium text-violet-400">On-Chain Verification</h2>
           </div>
-          
+
           {proofs.length === 0 ? (
             <div className="text-center py-8">
               <ShieldCheck className="w-10 h-10 text-gray-600 mx-auto mb-3" weight="regular" />

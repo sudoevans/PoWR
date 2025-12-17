@@ -17,6 +17,7 @@ export interface PoWProfile {
     pullRequests: number;
     mergedPRs: number;
   };
+  summary?: string;
 }
 
 export interface Artifact {
@@ -68,10 +69,20 @@ class ApiClient {
   }
 
   async getUserProfile(username: string, accessToken?: string): Promise<PoWProfile> {
-    const url = accessToken 
+    const url = accessToken
       ? `/api/user/profile?username=${username}&access_token=${accessToken}`
       : `/api/user/profile?username=${username}`;
     return this.request<PoWProfile>(url);
+  }
+
+  async getPublicProfile(username: string): Promise<{
+    username: string;
+    profile: PoWProfile;
+    proofs: Proof[];
+    isVerified: boolean;
+    lastAnalyzed: string | null;
+  }> {
+    return this.request(`/api/user/public/${username}`);
   }
 
   async getUserSkills(username: string, accessToken: string): Promise<{ skills: SkillPoWScore[] }> {
@@ -109,6 +120,34 @@ class ApiClient {
     return this.request<{ stage: string; message: string; progress: number }>(`/api/user/progress?username=${username}`);
   }
 
+  async publishProof(username: string): Promise<{ success: boolean; proof?: Proof; message: string; upgradeRequired?: boolean }> {
+    return this.request<{ success: boolean; proof?: Proof; message: string; upgradeRequired?: boolean }>(
+      `/api/user/publish-proof`,
+      {
+        method: "POST",
+        body: JSON.stringify({ username }),
+      }
+    );
+  }
+
+  async getAnalysisStatus(username: string): Promise<{
+    hasProfile: boolean;
+    hasUnpublished: boolean;
+    lastAnalyzed: string | null;
+    lastPublished: string | null;
+    profile?: PoWProfile;
+    artifactsCount?: number;
+  }> {
+    return this.request<{
+      hasProfile: boolean;
+      hasUnpublished: boolean;
+      lastAnalyzed: string | null;
+      lastPublished: string | null;
+      profile?: PoWProfile;
+      artifactsCount?: number;
+    }>(`/api/user/analysis-status?username=${username}`);
+  }
+
   // Subscription methods
   async getSubscriptionPlans(): Promise<{ plans: any[] }> {
     return this.request<{ plans: any[] }>("/api/subscription/plans");
@@ -143,10 +182,10 @@ class ApiClient {
     });
   }
 
-  async verifyPayment(username: string, txHash: string, planType: string): Promise<{ success: boolean; message?: string }> {
+  async verifyPayment(username: string, txHash: string, planType: string, network?: string): Promise<{ success: boolean; message?: string }> {
     return this.request<{ success: boolean; message?: string }>(`/api/payments/verify?username=${username}`, {
       method: "POST",
-      body: JSON.stringify({ txHash, planType }),
+      body: JSON.stringify({ txHash, planType, network }),
     });
   }
 
